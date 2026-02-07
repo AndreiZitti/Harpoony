@@ -9,12 +9,22 @@ var batch_remaining: int = 0
 var batch_total: int = 0
 var spawn_timer: float = 0.0
 
+# Combo detection
+var recently_labeled: Array = []  # Array of {point, time}
+const COMBO_WINDOW: float = 0.15  # Seconds within which labels count as simultaneous
+
 const SPAWN_INTERVAL = 0.3  # Stagger spawns so they don't all appear at once
 
 
 func _process(delta: float) -> void:
 	if not GameData.is_epoch_active:
 		return
+
+	# Clean up expired combo buffer entries
+	var now = Time.get_ticks_msec() / 1000.0
+	recently_labeled = recently_labeled.filter(func(entry):
+		return is_instance_valid(entry["point"]) and (now - entry["time"]) < COMBO_WINDOW
+	)
 
 	# Spawn remaining batch with stagger
 	if batch_remaining > 0:
@@ -185,6 +195,13 @@ func _on_point_discovered(source_point: Area2D) -> void:
 	if cursor and cursor.has_method("on_point_labeled"):
 		cursor.on_point_labeled()
 
+	# Combo detection for Stage 2 (Math)
+	if GameData.current_stage == 2 and not source_point.is_augmented:
+		var now = Time.get_ticks_msec() / 1000.0
+		recently_labeled.append({"point": source_point, "time": now})
+		_check_combo()
+
+	# Batch label logic (existing)
 	var chance = GameData.get_batch_label_chance()
 	if chance <= 0.0:
 		return
@@ -206,11 +223,63 @@ func _on_point_discovered(source_point: Area2D) -> void:
 		if point in cursor_points:
 			continue
 		if randf() < chance:
-			# Stagger batch labels with a brief visual chain line
 			if batch_delay > 0.0:
 				_draw_chain_line(source_point.global_position, point.global_position, batch_delay)
 			point._discover()
 			batch_delay += 0.08
+
+
+func _check_combo() -> void:
+	# Need at least 3 recently labeled points
+	if recently_labeled.size() < 3:
+		return
+
+	# Collect valid (not yet merging/consumed) points by type
+	var numbers: Array = []
+	var signs: Array = []
+	for entry in recently_labeled:
+		var p = entry["point"]
+		if not is_instance_valid(p) or p.is_consumed:
+			continue
+		if p.has_meta("is_merging"):
+			continue
+		if p.point_type == "number":
+			numbers.append(p)
+		elif p.point_type == "sign":
+			signs.append(p)
+
+	# Check for valid combo: 2 numbers + 1 sign
+	if numbers.size() >= 2 and signs.size() >= 1:
+		var combo_numbers = [numbers[0], numbers[1]]
+		var combo_sign = signs[0]
+		_trigger_combo(combo_numbers, combo_sign)
+
+		# Remove used points from buffer
+		for p in combo_numbers:
+			recently_labeled = recently_labeled.filter(func(e): return e["point"] != p)
+		recently_labeled = recently_labeled.filter(func(e): return e["point"] != combo_sign)
+
+
+func _trigger_combo(numbers: Array, sign_point: Area2D) -> void:
+	var a = numbers[0].digit_value
+	var b = numbers[1].digit_value
+	var sign_idx = sign_point.digit_value
+	var signs_display = ["+", "\u2212", "\u00d7"]
+	var sign_str = signs_display[sign_idx % signs_display.size()]
+
+	var result: int = 0
+	match sign_idx:
+		0: result = a + b
+		1: result = a - b
+		2: result = a * b
+
+	var equation = "%d%s%d=%d" % [a, sign_str, b, result]
+	print("COMBO! ", equation)
+
+	# Mark points as merging (prevents double-combo)
+	for p in numbers:
+		p.set_meta("is_merging", true)
+	sign_point.set_meta("is_merging", true)
 
 
 func _draw_chain_line(from: Vector2, to: Vector2, delay: float) -> void:
