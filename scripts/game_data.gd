@@ -223,6 +223,14 @@ func get_batch_label_chance() -> float:
 	return upgrade_levels["batch_label"] * 0.12
 
 
+# --- Accuracy Scaling ---
+func get_accuracy_per_point() -> float:
+	var base = 0.5
+	var node_bonus = upgrade_levels["nodes"] * 0.15
+	var layer_bonus = upgrade_levels["layers"] * 0.1
+	return base + node_bonus + layer_bonus
+
+
 # --- Network ---
 func get_output_count() -> int:
 	return stages[current_stage]["output_nodes"]

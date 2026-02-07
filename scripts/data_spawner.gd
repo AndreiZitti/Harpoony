@@ -93,7 +93,7 @@ func _spawn_data_point() -> void:
 
 func _on_point_consumed(compute_earned: int, point: Area2D) -> void:
 	GameData.add_compute(compute_earned)
-	GameData.add_accuracy(1.0)
+	GameData.add_accuracy(GameData.get_accuracy_per_point())
 
 	# Trigger network forward pass visual
 	var network = get_parent().get_node_or_null("Network")
