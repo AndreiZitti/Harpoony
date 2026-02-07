@@ -28,7 +28,9 @@ func _process(delta: float) -> void:
 	active_points = active_points.filter(func(p): return is_instance_valid(p))
 
 	# Check if all data has been consumed (batch done)
-	if batch_remaining <= 0 and active_points.size() == 0:
+	# Count only points that haven't been consumed yet (animating consume doesn't count)
+	var alive_count = active_points.filter(func(p): return not p.is_consumed).size()
+	if batch_remaining <= 0 and alive_count == 0:
 		batch_complete.emit()
 
 
@@ -40,7 +42,8 @@ func start_batch() -> void:
 
 func get_remaining_count() -> int:
 	active_points = active_points.filter(func(p): return is_instance_valid(p))
-	return batch_remaining + active_points.size()
+	var alive = active_points.filter(func(p): return not p.is_consumed).size()
+	return batch_remaining + alive
 
 
 func _spawn_data_point() -> void:
@@ -54,9 +57,10 @@ func _spawn_data_point() -> void:
 	var center = viewport_size / 2.0
 	point.network_center = center
 
-	# Pass input node positions and exclusion zone from the network
+	# Pass network reference for traversal path + exclusion zone
 	var network = get_parent().get_node_or_null("Network")
 	if network:
+		point.network_ref = network
 		point.input_node_positions = network.get_input_node_world_positions()
 		point.network_exclusion_rect = network.get_exclusion_rect()
 
@@ -74,12 +78,21 @@ func _spawn_data_point() -> void:
 		3:  # Right
 			pos = Vector2(viewport_size.x - margin, randf_range(margin, viewport_size.y - margin))
 
-	# Assign data class
+	# Assign data class and point type
 	match GameData.current_stage:
 		0:  # Binary
 			point.data_class = randi() % 2
 		1:  # Numbers
 			point.data_class = randi() % 10
+		2:  # Math — 75% numbers, 25% signs
+			if randf() < 0.25:
+				point.point_type = "sign"
+				point.data_class = 1  # Routes to Signs output node
+				point.digit_value = randi() % 3  # 0=+, 1=−, 2=×
+			else:
+				point.point_type = "number"
+				point.data_class = 0  # Routes to Numbers output node
+				point.digit_value = randi() % 10  # 0-9
 		_:
 			point.data_class = randi() % GameData.get_output_count()
 
@@ -91,14 +104,9 @@ func _spawn_data_point() -> void:
 	active_points.append(point)
 
 
-func _on_point_consumed(compute_earned: int, point: Area2D) -> void:
-	GameData.add_compute(compute_earned)
+func _on_point_consumed(cash_earned: int, point: Area2D) -> void:
+	GameData.add_cash(cash_earned)
 	GameData.add_accuracy(GameData.get_accuracy_per_point())
-
-	# Trigger network forward pass visual
-	var network = get_parent().get_node_or_null("Network")
-	if network and network.has_method("trigger_forward_pass"):
-		network.trigger_forward_pass()
 
 	# Augmentation — only non-augmented data can spawn copies
 	if is_instance_valid(point) and not point.is_augmented:
@@ -124,19 +132,29 @@ func _spawn_aug_point() -> void:
 	var viewport_size = get_viewport_rect().size
 	var center = viewport_size / 2.0
 	point.network_center = center
+	point.network_ref = network
 	point.input_node_positions = network.get_input_node_world_positions()
 	point.network_exclusion_rect = network.get_exclusion_rect()
 
 	# Augmented data gets quality multiplier
-	point.compute_multiplier = GameData.get_aug_quality_multiplier()
+	point.cash_multiplier = GameData.get_aug_quality_multiplier()
 	point.is_augmented = true
 
-	# Assign data class
+	# Assign data class and point type
 	match GameData.current_stage:
 		0:
 			point.data_class = randi() % 2
 		1:
 			point.data_class = randi() % 10
+		2:  # Math — 75% numbers, 25% signs
+			if randf() < 0.25:
+				point.point_type = "sign"
+				point.data_class = 1
+				point.digit_value = randi() % 3
+			else:
+				point.point_type = "number"
+				point.data_class = 0
+				point.digit_value = randi() % 10
 		_:
 			point.data_class = randi() % GameData.get_output_count()
 
@@ -162,15 +180,20 @@ func clear_all_points() -> void:
 
 
 func _on_point_discovered(source_point: Area2D) -> void:
+	# Flash the cursor on label
+	var cursor = get_parent().get_node_or_null("Cursor")
+	if cursor and cursor.has_method("on_point_labeled"):
+		cursor.on_point_labeled()
+
 	var chance = GameData.get_batch_label_chance()
 	if chance <= 0.0:
 		return
 
-	var cursor = get_parent().get_node_or_null("Cursor")
 	var cursor_points: Array = []
 	if cursor:
 		cursor_points = cursor.hovering_points.duplicate()
 
+	var batch_delay = 0.0
 	for point in active_points:
 		if not is_instance_valid(point):
 			continue
@@ -183,4 +206,23 @@ func _on_point_discovered(source_point: Area2D) -> void:
 		if point in cursor_points:
 			continue
 		if randf() < chance:
+			# Stagger batch labels with a brief visual chain line
+			if batch_delay > 0.0:
+				_draw_chain_line(source_point.global_position, point.global_position, batch_delay)
 			point._discover()
+			batch_delay += 0.08
+
+
+func _draw_chain_line(from: Vector2, to: Vector2, delay: float) -> void:
+	# Spawn a brief visual line between batch-labeled points
+	var line = Line2D.new()
+	line.add_point(from)
+	line.add_point(to)
+	line.width = 1.5
+	line.default_color = Color(0.3, 1.0, 0.5, 0.5)
+	get_tree().current_scene.add_child(line)
+
+	var tween = line.create_tween()
+	tween.tween_interval(delay)
+	tween.tween_property(line, "modulate:a", 0.0, 0.3)
+	tween.tween_callback(line.queue_free)
