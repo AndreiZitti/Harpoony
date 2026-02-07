@@ -9,6 +9,7 @@ var tooltip_panel: PanelContainer
 var tooltip_name: Label
 var tooltip_desc: Label
 var tooltip_stats: Label
+var tooltip_effect: Label
 
 var hovered_node: String = ""
 
@@ -146,7 +147,7 @@ func _build_tooltip() -> void:
 	tooltip_panel = PanelContainer.new()
 	tooltip_panel.visible = false
 	tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tooltip_panel.custom_minimum_size = Vector2(190, 0)
+	tooltip_panel.custom_minimum_size = Vector2(220, 0)
 
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color(0.05, 0.05, 0.1, 0.95)
@@ -170,6 +171,12 @@ func _build_tooltip() -> void:
 	tooltip_desc.add_theme_color_override("font_color", Color(0.55, 0.55, 0.65))
 	tooltip_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(tooltip_desc)
+
+	tooltip_effect = Label.new()
+	tooltip_effect.add_theme_font_size_override("font_size", 11)
+	tooltip_effect.add_theme_color_override("font_color", Color(0.4, 0.75, 1.0))
+	tooltip_effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(tooltip_effect)
 
 	tooltip_stats = Label.new()
 	tooltip_stats.add_theme_font_size_override("font_size", 12)
@@ -247,19 +254,37 @@ func _update_tooltip() -> void:
 	var max_level = upgrade["max_level"]
 	var state = _get_upgrade_state(hovered_node)
 
-	tooltip_name.text = upgrade["name"]
+	tooltip_name.text = "%s   Lv %d/%d" % [upgrade["name"], level, max_level]
 	tooltip_desc.text = upgrade["description"]
 
+	# Effect preview
 	if state == "locked":
-		var prereq_name = GameData.upgrades[GameData.upgrade_prerequisites[hovered_node]]["name"]
-		tooltip_stats.text = "Requires: " + prereq_name
+		tooltip_effect.text = ""
+		tooltip_effect.visible = false
+	else:
+		var previews = GameData.get_effect_preview(hovered_node)
+		tooltip_effect.text = "\n".join(previews)
+		tooltip_effect.visible = true
+		if state == "maxed":
+			tooltip_effect.add_theme_color_override("font_color", Color(0.5, 0.85, 0.3))
+		else:
+			tooltip_effect.add_theme_color_override("font_color", Color(0.4, 0.75, 1.0))
+
+	# Stats line (cost or status)
+	if state == "locked":
+		var prereq = GameData.upgrade_prerequisites[hovered_node]
+		if prereq != "":
+			var prereq_name = GameData.upgrades[prereq]["name"]
+			tooltip_stats.text = "Requires: " + prereq_name
+		else:
+			tooltip_stats.text = "Locked"
 		tooltip_stats.add_theme_color_override("font_color", Color(0.6, 0.4, 0.3))
 	elif state == "maxed":
-		tooltip_stats.text = "Level %d/%d  (MAX)" % [level, max_level]
+		tooltip_stats.text = "MAXED"
 		tooltip_stats.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	else:
 		var cost = upgrade["costs"][level]
-		tooltip_stats.text = "Level %d/%d  |  Cost: $%d" % [level, max_level, cost]
+		tooltip_stats.text = "Cost: %d CP" % cost
 		if GameData.can_buy_upgrade(hovered_node):
 			tooltip_stats.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 		else:
@@ -267,6 +292,7 @@ func _update_tooltip() -> void:
 
 	tooltip_panel.visible = true
 
+	# Position tooltip near hovered node
 	var node_pos = _get_node_screen_pos(hovered_node)
 	var tip_pos = node_pos + Vector2(NODE_RADIUS + 14, -20)
 
