@@ -159,27 +159,32 @@ func _build_tooltip() -> void:
 
 	var vbox = VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 3)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tooltip_panel.add_child(vbox)
 
 	tooltip_name = Label.new()
 	tooltip_name.add_theme_font_size_override("font_size", 15)
 	tooltip_name.add_theme_color_override("font_color", Color.WHITE)
+	tooltip_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(tooltip_name)
 
 	tooltip_desc = Label.new()
 	tooltip_desc.add_theme_font_size_override("font_size", 11)
 	tooltip_desc.add_theme_color_override("font_color", Color(0.55, 0.55, 0.65))
 	tooltip_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tooltip_desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(tooltip_desc)
 
 	tooltip_effect = Label.new()
 	tooltip_effect.add_theme_font_size_override("font_size", 11)
 	tooltip_effect.add_theme_color_override("font_color", Color(0.4, 0.75, 1.0))
 	tooltip_effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tooltip_effect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(tooltip_effect)
 
 	tooltip_stats = Label.new()
 	tooltip_stats.add_theme_font_size_override("font_size", 12)
+	tooltip_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(tooltip_stats)
 
 	root_control.add_child(tooltip_panel)
