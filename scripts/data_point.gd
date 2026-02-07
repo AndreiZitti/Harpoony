@@ -1,6 +1,7 @@
 extends Area2D
 
 signal consumed(compute_earned: int)
+signal discovered(point: Area2D)
 
 var velocity: Vector2 = Vector2.ZERO
 var is_labeled: bool = false
@@ -14,6 +15,7 @@ var display_value: String = ""
 var base_color: Color = Color(0.3, 0.8, 1.0)
 var compute_multiplier: float = 1.0
 var is_augmented: bool = false
+var data_class: int = -1
 
 const DRIFT_SPEED = 30.0
 const ATTRACTION_STRENGTH = 5.0
@@ -95,24 +97,23 @@ func apply_hover(delta: float) -> void:
 
 func _discover() -> void:
 	is_labeled = true
-	# Generate stage-appropriate data
 	match GameData.current_stage:
-		0:  # Binary — 0 or 1
-			display_value = str(randi() % 2)
-		1:  # Numbers — any digit 0-9
-			display_value = str(randi() % 10)
-		2:  # Images — labeled categories
+		0:
+			display_value = str(data_class)
+		1:
+			display_value = str(data_class)
+		2:
 			var labels = ["cat", "dog", "car", "tree", "house"]
-			display_value = labels[randi() % labels.size()]
-		3:  # Faces — face IDs
-			display_value = "F" + str(randi() % 100)
-		_:  # AGI — complex tokens
-			display_value = str(randi() % 1000)
-	# Pick a random input node as the target
+			display_value = labels[data_class % labels.size()]
+		3:
+			display_value = "F" + str(data_class)
+		_:
+			display_value = str(data_class)
 	if input_node_positions.size() > 0:
 		target_position = input_node_positions[randi() % input_node_positions.size()]
 	else:
 		target_position = network_center
+	discovered.emit(self)
 	queue_redraw()
 
 

@@ -74,8 +74,18 @@ func _spawn_data_point() -> void:
 		3:  # Right
 			pos = Vector2(viewport_size.x - margin, randf_range(margin, viewport_size.y - margin))
 
+	# Assign data class
+	match GameData.current_stage:
+		0:  # Binary
+			point.data_class = randi() % 2
+		1:  # Numbers
+			point.data_class = randi() % 10
+		_:
+			point.data_class = randi() % GameData.get_output_count()
+
 	point.global_position = pos
 	point.consumed.connect(_on_point_consumed.bind(point))
+	point.discovered.connect(_on_point_discovered)
 
 	get_tree().current_scene.add_child(point)
 	active_points.append(point)
@@ -121,6 +131,15 @@ func _spawn_aug_point() -> void:
 	point.compute_multiplier = GameData.get_aug_quality_multiplier()
 	point.is_augmented = true
 
+	# Assign data class
+	match GameData.current_stage:
+		0:
+			point.data_class = randi() % 2
+		1:
+			point.data_class = randi() % 10
+		_:
+			point.data_class = randi() % GameData.get_output_count()
+
 	# Spawn from a random output node
 	point.global_position = output_positions[randi() % output_positions.size()]
 	# Push it outward from center
@@ -128,6 +147,7 @@ func _spawn_aug_point() -> void:
 	point.velocity = outward * 80.0
 
 	point.consumed.connect(_on_point_consumed.bind(point))
+	point.discovered.connect(_on_point_discovered)
 
 	get_tree().current_scene.add_child(point)
 	active_points.append(point)
@@ -139,3 +159,28 @@ func clear_all_points() -> void:
 			point.queue_free()
 	active_points.clear()
 	batch_remaining = 0
+
+
+func _on_point_discovered(source_point: Area2D) -> void:
+	var chance = GameData.get_batch_label_chance()
+	if chance <= 0.0:
+		return
+
+	var cursor = get_parent().get_node_or_null("Cursor")
+	var cursor_points: Array = []
+	if cursor:
+		cursor_points = cursor.hovering_points.duplicate()
+
+	for point in active_points:
+		if not is_instance_valid(point):
+			continue
+		if point == source_point:
+			continue
+		if point.is_labeled or point.is_consumed:
+			continue
+		if point.data_class != source_point.data_class:
+			continue
+		if point in cursor_points:
+			continue
+		if randf() < chance:
+			point._discover()
