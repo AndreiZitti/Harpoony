@@ -12,17 +12,22 @@ var tooltip_stats: Label
 
 var hovered_node: String = ""
 
-# Visual config
-const NODE_SIZE = Vector2(120, 58)
-const CAT_SIZE = Vector2(86, 28)
+# Visual config — circular nodes
+const NODE_RADIUS = 25.0
 
-# Category nodes (non-interactive visual anchors)
-var category_keys: Array = ["root", "cat_network", "cat_data", "cat_player"]
-var category_labels: Dictionary = {
-	"root": "RESEARCH",
-	"cat_network": "NETWORK",
-	"cat_data": "DATA",
-	"cat_player": "PLAYER",
+# Node abbreviations displayed inside circles
+var node_abbreviations: Dictionary = {
+	"nodes": "Nd",
+	"layers": "Ly",
+	"dataset_size": "DS",
+	"data_quality": "DQ",
+	"cursor_size": "Cs",
+	"label_speed": "Ls",
+	"activation_func": "Ac",
+	"learning_rate": "Lr",
+	"aug_chance": "Au",
+	"aug_quality": "AQ",
+	"batch_label": "Bl",
 }
 
 var current_layout: Dictionary = {"positions": {}, "edges": []}
@@ -73,7 +78,7 @@ func _build_ui() -> void:
 
 	compute_display = Label.new()
 	compute_display.add_theme_font_size_override("font_size", 22)
-	compute_display.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	compute_display.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 	compute_display.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	header_vbox.add_child(compute_display)
 
@@ -175,10 +180,6 @@ func _build_tooltip() -> void:
 
 # --- State helpers ---
 
-func _is_category(key: String) -> bool:
-	return key in category_keys
-
-
 func _get_upgrade_state(key: String) -> String:
 	var level = GameData.upgrade_levels[key]
 	var max_level = GameData.upgrades[key]["max_level"]
@@ -214,13 +215,12 @@ func _process(_delta: float) -> void:
 	var new_hover = ""
 
 	for key in current_layout["positions"]:
-		if _is_category(key):
+		if key == "root":
 			continue
 		if key not in GameData.upgrades:
 			continue
 		var pos = _get_node_screen_pos(key)
-		var rect = Rect2(pos - NODE_SIZE / 2.0, NODE_SIZE)
-		if rect.has_point(mouse_pos):
+		if mouse_pos.distance_to(pos) <= NODE_RADIUS:
 			new_hover = key
 
 	if new_hover != hovered_node:
@@ -259,7 +259,7 @@ func _update_tooltip() -> void:
 		tooltip_stats.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	else:
 		var cost = upgrade["costs"][level]
-		tooltip_stats.text = "Level %d/%d  |  Cost: %d CP" % [level, max_level, cost]
+		tooltip_stats.text = "Level %d/%d  |  Cost: $%d" % [level, max_level, cost]
 		if GameData.can_buy_upgrade(hovered_node):
 			tooltip_stats.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 		else:
@@ -268,11 +268,11 @@ func _update_tooltip() -> void:
 	tooltip_panel.visible = true
 
 	var node_pos = _get_node_screen_pos(hovered_node)
-	var tip_pos = node_pos + Vector2(NODE_SIZE.x / 2.0 + 14, -20)
+	var tip_pos = node_pos + Vector2(NODE_RADIUS + 14, -20)
 
 	var tip_size = tooltip_panel.size
 	if tip_pos.x + tip_size.x > tree_canvas.size.x - 20:
-		tip_pos.x = node_pos.x - NODE_SIZE.x / 2.0 - tip_size.x - 14
+		tip_pos.x = node_pos.x - NODE_RADIUS - tip_size.x - 14
 	if tip_pos.y < 80:
 		tip_pos.y = 80
 	if tip_pos.y + tip_size.y > tree_canvas.size.y - 80:
@@ -294,8 +294,8 @@ func _on_tree_input(event: InputEvent) -> void:
 func _try_buy(key: String) -> void:
 	if GameData.buy_upgrade(key):
 		if cheats_enabled:
-			GameData.compute = 999999999
-			GameData.compute_changed.emit(GameData.compute)
+			GameData.cash = 999999999
+			GameData.cash_changed.emit(GameData.cash)
 		_update_ui()
 
 
@@ -309,70 +309,82 @@ func _draw_tree() -> void:
 	for edge in current_layout["edges"]:
 		_draw_edge(edge[0], edge[1], time)
 
-	# 2. Draw category nodes
-	for key in category_keys:
-		if key in current_layout["positions"]:
-			_draw_category_node(key, font, time)
+	# 2. Draw root node (small decorative circle)
+	if "root" in current_layout["positions"]:
+		var root_pos = _get_node_screen_pos("root")
+		tree_canvas.draw_circle(root_pos, 12.0, Color(0.15, 0.2, 0.35, 0.9))
+		tree_canvas.draw_arc(root_pos, 12.0, 0, TAU, 32, Color(0.3, 0.5, 0.8, 0.6), 1.5)
+		var r_text = "R"
+		var r_size = font.get_string_size(r_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11)
+		tree_canvas.draw_string(font, root_pos - Vector2(r_size.x / 2.0, -4), r_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.5, 0.7, 1.0, 0.8))
 
 	# 3. Draw upgrade nodes
 	for key in current_layout["positions"]:
-		if not _is_category(key):
-			_draw_upgrade_node(key, font, time)
+		if key != "root":
+			_draw_node_circle(key, font, time)
 
 
 func _draw_edge(from_key: String, to_key: String, time: float) -> void:
 	var from_pos = _get_node_screen_pos(from_key)
 	var to_pos = _get_node_screen_pos(to_key)
 
-	# Determine brightness from node states
-	var to_bright = 0.15
-	if _is_category(to_key):
-		to_bright = 0.5
-	else:
+	var line_alpha = 0.15
+	var line_width = 1.5
+	var is_dashed = false
+
+	if to_key in GameData.upgrades:
 		var state = _get_upgrade_state(to_key)
 		match state:
 			"locked":
-				to_bright = 0.1
+				line_alpha = 0.1
+				line_width = 1.0
+				is_dashed = true
 			"available":
-				to_bright = 0.25
+				line_alpha = 0.25
+				line_width = 1.5
 			"affordable":
-				to_bright = 0.5
+				line_alpha = 0.5
+				line_width = 2.0
 			"owned", "owned_affordable":
-				to_bright = 0.6
+				line_alpha = 0.6
+				line_width = 2.0
 			"maxed":
-				to_bright = 0.7
+				line_alpha = 0.7
+				line_width = 2.5
+	else:
+		line_alpha = 0.3
 
-	var line_color = Color(0.3, 0.5, 0.8, to_bright)
+	var line_color = Color(0.3, 0.5, 0.8, line_alpha)
 
 	# Fade edge during node appearance
 	if to_key in node_appear_timers:
 		var edge_progress = clampf(node_appear_timers[to_key] / NODE_APPEAR_DURATION, 0.0, 1.0)
 		line_color.a *= edge_progress
 
-	tree_canvas.draw_line(from_pos, to_pos, line_color, 2.0)
+	if is_dashed:
+		var direction = (to_pos - from_pos)
+		var length = direction.length()
+		var norm = direction / length
+		var dash_len = 6.0
+		var gap_len = 4.0
+		var d = 0.0
+		while d < length:
+			var seg_start = from_pos + norm * d
+			var seg_end = from_pos + norm * minf(d + dash_len, length)
+			tree_canvas.draw_line(seg_start, seg_end, line_color, line_width)
+			d += dash_len + gap_len
+	else:
+		tree_canvas.draw_line(from_pos, to_pos, line_color, line_width)
 
-	# Subtle glow on bright edges
-	if to_bright > 0.4:
+	# Glow on bright edges
+	if line_alpha > 0.4:
 		var glow = 0.03 + sin(time * 1.5) * 0.02
 		tree_canvas.draw_line(from_pos, to_pos, Color(0.4, 0.6, 1.0, glow), 5.0)
 
 
-func _draw_category_node(key: String, font: Font, _time: float) -> void:
-	var pos = _get_node_screen_pos(key)
-	var label_text = category_labels[key]
-
-	# Small subtle background
-	var rect = Rect2(pos - CAT_SIZE / 2.0, CAT_SIZE)
-	tree_canvas.draw_rect(rect, Color(0.1, 0.12, 0.2, 0.6), true)
-	tree_canvas.draw_rect(rect, Color(0.3, 0.45, 0.7, 0.35), false, 1.0)
-
-	# Label text centered
-	var text_size = font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12)
-	var text_pos = Vector2(pos.x - text_size.x / 2.0, pos.y + 4)
-	tree_canvas.draw_string(font, text_pos, label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 0.65, 0.9, 0.8))
-
-
-func _draw_upgrade_node(key: String, font: Font, time: float) -> void:
+func _draw_node_circle(key: String, font: Font, time: float) -> void:
+	if key not in GameData.upgrades:
+		return
 	var pos = _get_node_screen_pos(key)
 	var upgrade = GameData.upgrades[key]
 	var level = GameData.upgrade_levels[key]
@@ -380,131 +392,113 @@ func _draw_upgrade_node(key: String, font: Font, time: float) -> void:
 	var state = _get_upgrade_state(key)
 	var is_hover = key == hovered_node
 
+	# Appear animation
 	var appear_progress = 1.0
 	if key in node_appear_timers:
 		appear_progress = clampf(node_appear_timers[key] / NODE_APPEAR_DURATION, 0.0, 1.0)
 
-	var draw_size = NODE_SIZE * (0.5 + 0.5 * appear_progress)
-	var rect = Rect2(pos - draw_size / 2.0, draw_size)
+	var draw_radius = NODE_RADIUS * (0.5 + 0.5 * appear_progress)
 
 	# Colors based on state
-	var bg_color: Color
-	var border_color: Color
+	var fill_color: Color
+	var ring_color: Color
 	var name_color: Color
-	var detail_color: Color
+	var cost_color: Color
 
 	match state:
 		"locked":
-			bg_color = Color(0.05, 0.05, 0.08, 0.8)
-			border_color = Color(0.15, 0.15, 0.2, 0.4)
+			fill_color = Color(0.08, 0.08, 0.1, 0.5)
+			ring_color = Color(0.15, 0.15, 0.2, 0.0)
 			name_color = Color(0.3, 0.3, 0.38)
-			detail_color = Color(0.25, 0.2, 0.2)
+			cost_color = Color(0.0, 0.0, 0.0, 0.0)
 		"available":
-			bg_color = Color(0.06, 0.07, 0.12, 0.9)
-			border_color = Color(0.2, 0.25, 0.4, 0.5)
+			fill_color = Color(0.1, 0.12, 0.2, 0.9)
+			ring_color = Color(0.25, 0.3, 0.5, 0.4)
 			name_color = Color(0.5, 0.5, 0.6)
-			detail_color = Color(0.6, 0.3, 0.3)
+			cost_color = Color(0.6, 0.3, 0.3)
 		"affordable":
-			bg_color = Color(0.07, 0.09, 0.16, 0.95)
-			border_color = Color(0.3, 0.5, 0.9, 0.65)
+			fill_color = Color(0.12, 0.15, 0.28, 0.95)
+			ring_color = Color(0.3, 0.5, 0.9, 0.7)
 			name_color = Color(0.8, 0.85, 1.0)
-			detail_color = Color(0.3, 1.0, 0.4)
+			cost_color = Color(0.3, 1.0, 0.4)
 		"owned":
-			bg_color = Color(0.08, 0.1, 0.18, 0.95)
-			border_color = Color(0.3, 0.55, 1.0, 0.6)
+			fill_color = Color(0.15, 0.2, 0.35, 0.95)
+			ring_color = Color(0.3, 0.55, 1.0, 0.6)
 			name_color = Color.WHITE
-			detail_color = Color(0.6, 0.3, 0.3)
+			cost_color = Color(0.6, 0.3, 0.3)
 		"owned_affordable":
-			bg_color = Color(0.08, 0.1, 0.18, 0.95)
-			border_color = Color(0.3, 0.55, 1.0, 0.6)
+			fill_color = Color(0.15, 0.2, 0.35, 0.95)
+			ring_color = Color(0.3, 0.55, 1.0, 0.6)
 			name_color = Color.WHITE
-			detail_color = Color(0.3, 1.0, 0.4)
+			cost_color = Color(0.3, 1.0, 0.4)
 		"maxed":
-			bg_color = Color(0.1, 0.16, 0.1, 0.95)
-			border_color = Color(0.35, 0.8, 0.3, 0.65)
+			fill_color = Color(0.2, 0.35, 0.25, 0.95)
+			ring_color = Color(0.3, 0.9, 0.7, 0.7)
 			name_color = Color(0.7, 1.0, 0.6)
-			detail_color = Color(0.5, 0.85, 0.3)
+			cost_color = Color(0.5, 0.85, 0.3)
 
 	# Hover effect
 	if is_hover and state != "locked":
-		bg_color = bg_color.lightened(0.12)
-		border_color.a = minf(border_color.a + 0.25, 1.0)
+		fill_color = fill_color.lightened(0.12)
+		ring_color.a = minf(ring_color.a + 0.25, 1.0)
 
-	# Fade in during appear animation
+	# Appear fade
 	if appear_progress < 1.0:
-		bg_color.a *= appear_progress
-		border_color.a *= appear_progress
+		fill_color.a *= appear_progress
+		ring_color.a *= appear_progress
 		name_color.a *= appear_progress
-		detail_color.a *= appear_progress
+		cost_color.a *= appear_progress
 
 	# Pulsing glow for affordable nodes
 	if state in ["affordable", "owned_affordable"]:
 		var pulse = (sin(time * 3.0) + 1.0) / 2.0
-		var glow_rect = rect.grow(3 + pulse * 3)
-		var glow_color = Color(0.3, 0.6, 1.0, 0.06 + pulse * 0.05)
-		tree_canvas.draw_rect(glow_rect, glow_color, true)
+		var glow_r = draw_radius + 4 + pulse * 4
+		tree_canvas.draw_circle(pos, glow_r, Color(0.3, 0.6, 1.0, 0.06 + pulse * 0.05))
 
-	# Background
-	tree_canvas.draw_rect(rect, bg_color, true)
+	# Fill circle
+	tree_canvas.draw_circle(pos, draw_radius, fill_color)
 
-	# Border
-	var border_width = 1.5
-	if is_hover and state != "locked":
-		border_width = 2.0
-	tree_canvas.draw_rect(rect, border_color, false, border_width)
+	# Outer ring (thin border)
+	if ring_color.a > 0.01:
+		tree_canvas.draw_arc(pos, draw_radius, 0, TAU, 32, ring_color, 1.5)
 
-	# Level pips at top of node
-	if state != "locked":
-		var pip_y = pos.y - NODE_SIZE.y / 2.0 + 9
-		var pip_spacing = 8.0
-		if max_level > 6:
-			pip_spacing = 6.0
-		var pip_total = (max_level - 1) * pip_spacing
-		var pip_start = pos.x - pip_total / 2.0
-		for i in range(max_level):
-			var pip_x = pip_start + i * pip_spacing
-			if i < level:
-				var pip_color = detail_color if state != "maxed" else Color(0.4, 0.85, 0.3)
-				tree_canvas.draw_circle(Vector2(pip_x, pip_y), 2.5, pip_color)
-			else:
-				tree_canvas.draw_circle(Vector2(pip_x, pip_y), 1.5, Color(0.2, 0.2, 0.3, 0.5))
+	# Radial level arc — progress ring
+	if level > 0 and state != "locked":
+		var arc_angle = (float(level) / float(max_level)) * TAU
+		var start_angle = -PI / 2.0  # start from top
+		var arc_color = ring_color.lightened(0.2)
+		if state == "maxed":
+			arc_color = Color(0.3, 0.9, 0.7, 0.8)
+		tree_canvas.draw_arc(pos, draw_radius + 3, start_angle, start_angle + arc_angle, 32, arc_color, 2.5)
 
-	# Name
+	# Abbreviation inside circle
+	var abbr = node_abbreviations.get(key, "?")
+	var abbr_fs = 13
+	var abbr_size = font.get_string_size(abbr, HORIZONTAL_ALIGNMENT_LEFT, -1, abbr_fs)
+	var abbr_pos = Vector2(pos.x - abbr_size.x / 2.0, pos.y + 5)
+	tree_canvas.draw_string(font, abbr_pos, abbr, HORIZONTAL_ALIGNMENT_LEFT, -1, abbr_fs, name_color)
+
+	# Name below circle
 	var name_text = upgrade["name"]
-	if state == "locked":
-		name_text = upgrade["name"]  # show name even when locked
-	var name_fs = 13
+	var name_fs = 11
 	var name_size = font.get_string_size(name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs)
-	var name_pos = Vector2(pos.x - name_size.x / 2.0, pos.y + 3)
+	var name_pos = Vector2(pos.x - name_size.x / 2.0, pos.y + draw_radius + 14)
 	tree_canvas.draw_string(font, name_pos, name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs, name_color)
 
-	# Bottom detail line
-	var bottom_text = ""
-	var bottom_color = detail_color
-	var bottom_fs = 10
-
-	match state:
-		"locked":
-			bottom_text = "LOCKED"
-			bottom_color = Color(0.35, 0.25, 0.25)
-		"maxed":
-			bottom_text = "MAX"
-		_:
-			if level > 0:
-				var cost = GameData.get_upgrade_cost(key)
-				if cost > 0:
-					bottom_text = "Lv.%d | %d CP" % [level, cost]
-				else:
-					bottom_text = "Lv.%d" % level
-			else:
-				var cost = GameData.get_upgrade_cost(key)
-				if cost > 0:
-					bottom_text = "%d CP" % cost
-
-	if bottom_text != "":
-		var bt_size = font.get_string_size(bottom_text, HORIZONTAL_ALIGNMENT_LEFT, -1, bottom_fs)
-		var bt_pos = Vector2(pos.x - bt_size.x / 2.0, pos.y + 20)
-		tree_canvas.draw_string(font, bt_pos, bottom_text, HORIZONTAL_ALIGNMENT_LEFT, -1, bottom_fs, bottom_color)
+	# Cost below name
+	var cost_text = ""
+	if state == "maxed":
+		cost_text = "MAX"
+		cost_color = Color(0.5, 0.85, 0.3)
+	elif state != "locked":
+		var cost = GameData.get_upgrade_cost(key)
+		if cost > 0:
+			cost_text = "%d CP" % cost
+	if cost_text != "":
+		var cost_fs = 10
+		var cost_size = font.get_string_size(cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs)
+		var cost_pos = Vector2(pos.x - cost_size.x / 2.0, pos.y + draw_radius + 26)
+		tree_canvas.draw_string(font, cost_pos, cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs, cost_color)
 
 
 # --- Layout ---
@@ -513,44 +507,39 @@ func _get_tree_layout() -> Dictionary:
 	var positions: Dictionary = {}
 	var edges: Array = []
 
-	# Always present: root + 3 categories
-	positions["root"] = Vector2(0, -195)
-	positions["cat_network"] = Vector2(-220, -105)
-	positions["cat_data"] = Vector2(0, -105)
-	positions["cat_player"] = Vector2(220, -105)
+	# Root at center
+	positions["root"] = Vector2(0, 0)
 
-	edges.append(["root", "cat_network"])
-	edges.append(["root", "cat_data"])
-	edges.append(["root", "cat_player"])
+	# Ring 1 — Stage 1 upgrades, ~130px from center
+	var ring1_r = 130.0
+	positions["nodes"] = Vector2(ring1_r, 0).rotated(deg_to_rad(250))
+	positions["layers"] = Vector2(ring1_r, 0).rotated(deg_to_rad(290))
+	positions["dataset_size"] = Vector2(ring1_r, 0).rotated(deg_to_rad(345))
+	positions["data_quality"] = Vector2(ring1_r, 0).rotated(deg_to_rad(25))
+	positions["cursor_size"] = Vector2(ring1_r, 0).rotated(deg_to_rad(110))
+	positions["label_speed"] = Vector2(ring1_r, 0).rotated(deg_to_rad(150))
 
-	# Stage 1 nodes — always visible
-	positions["nodes"] = Vector2(-280, 0)
-	positions["layers"] = Vector2(-160, 0)
-	positions["dataset_size"] = Vector2(-60, 0)
-	positions["data_quality"] = Vector2(60, 0)
-	positions["cursor_size"] = Vector2(160, 0)
-	positions["label_speed"] = Vector2(280, 0)
+	# Root connects to all Ring 1
+	for key in ["nodes", "layers", "dataset_size", "data_quality", "cursor_size", "label_speed"]:
+		edges.append(["root", key])
 
-	edges.append(["cat_network", "nodes"])
-	edges.append(["cat_network", "layers"])
-	edges.append(["cat_data", "dataset_size"])
-	edges.append(["cat_data", "data_quality"])
-	edges.append(["cat_player", "cursor_size"])
-	edges.append(["cat_player", "label_speed"])
-
-	# Stage 2 nodes — only visible from stage 1+
+	# Ring 2 — Stage 2 upgrades, ~250px from center
 	if GameData.current_stage >= 1:
-		positions["activation_func"] = Vector2(-280, 95)
-		positions["learning_rate"] = Vector2(-220, 95)
-		positions["aug_chance"] = Vector2(-10, 95)
-		positions["aug_quality"] = Vector2(-10, 180)
-		positions["batch_label"] = Vector2(220, 95)
+		var ring2_r = 250.0
+		positions["activation_func"] = Vector2(ring2_r, 0).rotated(deg_to_rad(240))
+		positions["learning_rate"] = Vector2(ring2_r, 0).rotated(deg_to_rad(280))
+		positions["aug_chance"] = Vector2(ring2_r, 0).rotated(deg_to_rad(5))
+		positions["batch_label"] = Vector2(ring2_r, 0).rotated(deg_to_rad(130))
 
 		edges.append(["nodes", "activation_func"])
-		edges.append(["cat_network", "learning_rate"])
-		edges.append(["cat_data", "aug_chance"])
+		edges.append(["layers", "learning_rate"])
+		edges.append(["data_quality", "aug_chance"])
+		edges.append(["label_speed", "batch_label"])
+
+		# Ring 3 — deep chain, ~350px
+		var ring3_r = 350.0
+		positions["aug_quality"] = Vector2(ring3_r, 0).rotated(deg_to_rad(5))
 		edges.append(["aug_chance", "aug_quality"])
-		edges.append(["cat_player", "batch_label"])
 
 	return {"positions": positions, "edges": edges}
 
@@ -580,7 +569,7 @@ func hide_shop() -> void:
 
 
 func _update_ui() -> void:
-	compute_display.text = "%d Compute" % int(GameData.compute)
+	compute_display.text = "$%d" % int(GameData.cash)
 
 	var round_label = root_control.find_child("RoundLabel") as Label
 	if round_label:
@@ -593,8 +582,8 @@ func _update_ui() -> void:
 func _on_cheat_toggled(enabled: bool) -> void:
 	cheats_enabled = enabled
 	if cheats_enabled:
-		GameData.compute = 999999999
-		GameData.compute_changed.emit(GameData.compute)
+		GameData.cash = 999999999
+		GameData.cash_changed.emit(GameData.cash)
 	_update_ui()
 
 
