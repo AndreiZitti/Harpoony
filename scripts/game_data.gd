@@ -30,6 +30,8 @@ var upgrade_levels: Dictionary = {
 	"aug_chance": 0,
 	"aug_quality": 0,
 	"batch_label": 0,
+	"training_time": 0,
+	"transfer_learning": 0,
 }
 
 # Prerequisites — empty string means always available
@@ -45,6 +47,8 @@ var upgrade_prerequisites: Dictionary = {
 	"aug_chance": "",
 	"aug_quality": "aug_chance",
 	"batch_label": "",
+	"training_time": "",
+	"transfer_learning": "",
 }
 
 # Stage definitions
@@ -170,6 +174,20 @@ var upgrades: Dictionary = {
 		"costs": [40, 120, 350, 900, 2500],
 		"stage_available": 1,
 	},
+	"training_time": {
+		"name": "Train Time",
+		"description": "Extend training round duration",
+		"max_level": 4,
+		"costs": [60, 180, 500, 1500],
+		"stage_available": 1,
+	},
+	"transfer_learning": {
+		"name": "Transfer",
+		"description": "Carry over cash when advancing to next stage",
+		"max_level": 3,
+		"costs": [300, 900, 3000],
+		"stage_available": 1,
+	},
 }
 
 
@@ -254,7 +272,11 @@ func get_stage() -> Dictionary:
 
 
 func get_training_duration() -> float:
-	return 30.0
+	return 30.0 + upgrade_levels["training_time"] * 5.0
+
+
+func get_transfer_learning_percent() -> float:
+	return upgrade_levels["transfer_learning"] * 0.10
 
 
 func get_accuracy_percent() -> float:
@@ -274,6 +296,10 @@ func add_accuracy(amount: float) -> void:
 	var needed = stages[current_stage]["accuracy_needed"]
 	if accuracy >= needed and current_stage < stages.size() - 1:
 		accuracy -= needed
+		# Transfer Learning: carry over a % of cash to the next stage
+		var keep = cash * get_transfer_learning_percent()
+		cash = keep
+		cash_changed.emit(cash)
 		current_stage += 1
 		stage_changed.emit(current_stage)
 	accuracy_changed.emit(accuracy)
@@ -402,4 +428,16 @@ func get_effect_preview(key: String) -> Array:
 				return ["Batch chance: %d%%" % int(cur)]
 			var nxt = (level + 1) * 12.0
 			return ["Batch chance: %d%% → %d%%" % [int(cur), int(nxt)]]
+		"training_time":
+			var cur = get_training_duration()
+			if is_maxed:
+				return ["Round time: %ds" % int(cur)]
+			var nxt = 30.0 + (level + 1) * 5.0
+			return ["Round time: %ds → %ds" % [int(cur), int(nxt)]]
+		"transfer_learning":
+			var cur = get_transfer_learning_percent() * 100.0
+			if is_maxed:
+				return ["Cash kept: %d%%" % int(cur)]
+			var nxt = (level + 1) * 10.0
+			return ["Cash kept: %d%% → %d%%" % [int(cur), int(nxt)]]
 	return []

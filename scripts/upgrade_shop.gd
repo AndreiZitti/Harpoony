@@ -29,6 +29,8 @@ var node_icons: Dictionary = {
 	"aug_chance": "⊕",
 	"aug_quality": "✦",
 	"batch_label": "⊞",
+	"training_time": "⏱",
+	"transfer_learning": "⟳",
 }
 
 var current_layout: Dictionary = {"positions": {}, "edges": []}
@@ -566,15 +568,20 @@ func _get_tree_layout() -> Dictionary:
 		positions["aug_chance"] = Vector2(ring2_r, 0).rotated(deg_to_rad(5))
 		positions["batch_label"] = Vector2(ring2_r, 0).rotated(deg_to_rad(130))
 
+		positions["training_time"] = Vector2(ring2_r, 0).rotated(deg_to_rad(345))
+
 		edges.append(["nodes", "activation_func"])
 		edges.append(["layers", "learning_rate"])
 		edges.append(["data_quality", "aug_chance"])
+		edges.append(["dataset_size", "training_time"])
 		edges.append(["label_speed", "batch_label"])
 
-		# Ring 3 — deep chain, ~350px
+		# Ring 3 — deep chains, ~350px
 		var ring3_r = 350.0
 		positions["aug_quality"] = Vector2(ring3_r, 0).rotated(deg_to_rad(5))
+		positions["transfer_learning"] = Vector2(ring3_r, 0).rotated(deg_to_rad(280))
 		edges.append(["aug_chance", "aug_quality"])
+		edges.append(["learning_rate", "transfer_learning"])
 
 	return {"positions": positions, "edges": edges}
 
