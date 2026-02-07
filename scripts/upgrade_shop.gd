@@ -16,19 +16,19 @@ var hovered_node: String = ""
 # Visual config — circular nodes
 const NODE_RADIUS = 25.0
 
-# Node abbreviations displayed inside circles
-var node_abbreviations: Dictionary = {
-	"nodes": "Nd",
-	"layers": "Ly",
-	"dataset_size": "DS",
-	"data_quality": "DQ",
-	"cursor_size": "Cs",
-	"label_speed": "Ls",
-	"activation_func": "Ac",
-	"learning_rate": "Lr",
-	"aug_chance": "Au",
-	"aug_quality": "AQ",
-	"batch_label": "Bl",
+# Node icons displayed inside circles
+var node_icons: Dictionary = {
+	"nodes": "⬡",
+	"layers": "≡",
+	"dataset_size": "▦",
+	"data_quality": "◆",
+	"cursor_size": "◎",
+	"label_speed": "⚡",
+	"activation_func": "ƒ",
+	"learning_rate": "α",
+	"aug_chance": "⊕",
+	"aug_quality": "✦",
+	"batch_label": "⊞",
 }
 
 var current_layout: Dictionary = {"positions": {}, "edges": []}
@@ -498,8 +498,8 @@ func _draw_node_circle(key: String, font: Font, time: float) -> void:
 		tree_canvas.draw_arc(pos, draw_radius + 3, start_angle, start_angle + arc_angle, 32, arc_color, 2.5)
 
 	# Abbreviation inside circle
-	var abbr = node_abbreviations.get(key, "?")
-	var abbr_fs = 13
+	var abbr = node_icons.get(key, "?")
+	var abbr_fs = 16
 	var abbr_size = font.get_string_size(abbr, HORIZONTAL_ALIGNMENT_LEFT, -1, abbr_fs)
 	var abbr_pos = Vector2(pos.x - abbr_size.x / 2.0, pos.y + 5)
 	tree_canvas.draw_string(font, abbr_pos, abbr, HORIZONTAL_ALIGNMENT_LEFT, -1, abbr_fs, name_color)
