@@ -27,6 +27,9 @@ var category_labels: Dictionary = {
 
 var current_layout: Dictionary = {"positions": {}, "edges": []}
 
+var node_appear_timers: Dictionary = {}
+const NODE_APPEAR_DURATION = 0.8
+
 var cheats_enabled: bool = false
 
 
@@ -224,6 +227,11 @@ func _process(_delta: float) -> void:
 		hovered_node = new_hover
 		_update_tooltip()
 
+	for key in node_appear_timers.keys():
+		node_appear_timers[key] += _delta
+		if node_appear_timers[key] >= NODE_APPEAR_DURATION:
+			node_appear_timers.erase(key)
+
 	tree_canvas.queue_redraw()
 
 
@@ -335,6 +343,12 @@ func _draw_edge(from_key: String, to_key: String, time: float) -> void:
 				to_bright = 0.7
 
 	var line_color = Color(0.3, 0.5, 0.8, to_bright)
+
+	# Fade edge during node appearance
+	if to_key in node_appear_timers:
+		var edge_progress = clampf(node_appear_timers[to_key] / NODE_APPEAR_DURATION, 0.0, 1.0)
+		line_color.a *= edge_progress
+
 	tree_canvas.draw_line(from_pos, to_pos, line_color, 2.0)
 
 	# Subtle glow on bright edges
@@ -366,7 +380,12 @@ func _draw_upgrade_node(key: String, font: Font, time: float) -> void:
 	var state = _get_upgrade_state(key)
 	var is_hover = key == hovered_node
 
-	var rect = Rect2(pos - NODE_SIZE / 2.0, NODE_SIZE)
+	var appear_progress = 1.0
+	if key in node_appear_timers:
+		appear_progress = clampf(node_appear_timers[key] / NODE_APPEAR_DURATION, 0.0, 1.0)
+
+	var draw_size = NODE_SIZE * (0.5 + 0.5 * appear_progress)
+	var rect = Rect2(pos - draw_size / 2.0, draw_size)
 
 	# Colors based on state
 	var bg_color: Color
@@ -410,6 +429,13 @@ func _draw_upgrade_node(key: String, font: Font, time: float) -> void:
 	if is_hover and state != "locked":
 		bg_color = bg_color.lightened(0.12)
 		border_color.a = minf(border_color.a + 0.25, 1.0)
+
+	# Fade in during appear animation
+	if appear_progress < 1.0:
+		bg_color.a *= appear_progress
+		border_color.a *= appear_progress
+		name_color.a *= appear_progress
+		detail_color.a *= appear_progress
 
 	# Pulsing glow for affordable nodes
 	if state in ["affordable", "owned_affordable"]:
@@ -530,7 +556,12 @@ func _get_tree_layout() -> Dictionary:
 
 
 func _refresh_layout() -> void:
+	var old_keys = current_layout.get("positions", {}).keys()
 	current_layout = _get_tree_layout()
+	var new_keys = current_layout["positions"].keys()
+	for key in new_keys:
+		if key not in old_keys:
+			node_appear_timers[key] = 0.0
 
 
 # --- Shop visibility ---

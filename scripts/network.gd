@@ -4,6 +4,8 @@ var node_positions: Array = []  # Array of Arrays of Vector2
 var connections: Array = []     # Array of [Vector2, Vector2, int, int] (from, to, from_layer, to_layer)
 var pulse_time: float = 0.0
 var flash_timer: float = 0.0
+var stage_transition_timer: float = 0.0
+const STAGE_TRANSITION_DURATION = 1.5
 var net_width: float = 180.0
 var net_height: float = 140.0
 
@@ -20,6 +22,11 @@ func _process(delta: float) -> void:
 		flash_timer -= delta
 		if flash_timer <= 0:
 			flash_timer = 0.0
+
+	if stage_transition_timer > 0:
+		stage_transition_timer -= delta
+		if stage_transition_timer <= 0:
+			stage_transition_timer = 0.0
 
 	queue_redraw()
 
@@ -97,7 +104,8 @@ func _on_network_changed() -> void:
 
 
 func on_stage_changed() -> void:
-	_generate_network()  # output count may change between stages
+	stage_transition_timer = STAGE_TRANSITION_DURATION
+	_generate_network()
 
 
 func _draw() -> void:
@@ -147,6 +155,11 @@ func _draw() -> void:
 
 			if layer_idx == 0 or layer_idx == total_layers - 1:
 				radius = 8.0
+
+			# Animate output nodes expanding during stage transition
+			if layer_idx == total_layers - 1 and stage_transition_timer > 0:
+				var progress = 1.0 - (stage_transition_timer / STAGE_TRANSITION_DURATION)
+				radius *= clampf(progress * 2.0, 0.0, 1.0)
 
 			# Flash on forward pass
 			if flash_timer > 0:
