@@ -148,6 +148,9 @@ func _build_tooltip() -> void:
 	tooltip_panel.visible = false
 	tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tooltip_panel.custom_minimum_size = Vector2(220, 0)
+	tooltip_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	tooltip_panel.size = Vector2(220, 0)
+	tooltip_panel.reset_size()
 
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color(0.05, 0.05, 0.1, 0.95)
@@ -296,6 +299,7 @@ func _update_tooltip() -> void:
 			tooltip_stats.add_theme_color_override("font_color", Color(0.7, 0.35, 0.3))
 
 	tooltip_panel.visible = true
+	tooltip_panel.reset_size()
 
 	# Position tooltip near hovered node
 	var node_pos = _get_node_screen_pos(hovered_node)
