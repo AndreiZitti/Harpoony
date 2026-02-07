@@ -12,6 +12,7 @@ var current_stage: int = 0
 var accuracy: float = 0.0
 var training_round: int = 0
 var is_epoch_active: bool = false
+const COMBO_MULTIPLIER: float = 2.0
 
 # Network structure
 var neurons_per_layer: int = 1
@@ -70,12 +71,12 @@ var stages: Array = [
 		"color": Color(0.3, 1.0, 0.5),
 	},
 	{
-		"name": "Images",
+		"name": "Math",
 		"label_time": 1.0,
 		"cash_per_point": 25,
 		"accuracy_needed": 300,
-		"output_nodes": 10,
-		"color": Color(1.0, 0.8, 0.2),
+		"output_nodes": 3,
+		"color": Color(0.7, 0.3, 1.0),
 	},
 	{
 		"name": "Faces",
@@ -265,6 +266,11 @@ func get_cash_per_point() -> int:
 	var activation_mult = get_activation_multiplier()
 	var lr_mult = get_learning_rate_multiplier()
 	return int(base * network_mult * quality_mult * activation_mult * lr_mult)
+
+
+func get_combo_cash(individual_count: int) -> int:
+	var per_point = get_cash_per_point()
+	return int(per_point * individual_count * COMBO_MULTIPLIER)
 
 
 func get_stage() -> Dictionary:
