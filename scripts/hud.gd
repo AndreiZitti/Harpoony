@@ -155,6 +155,8 @@ func _rebuild_spear_row() -> void:
 
 func update_spear_state(index: int, state: String) -> void:
 	# state: "ready" | "flying" | "reeling"
+	if spear_row == null:
+		return
 	if index < 0 or index >= spear_row.get_child_count():
 		return
 	var dot = spear_row.get_child(index) as ColorRect
