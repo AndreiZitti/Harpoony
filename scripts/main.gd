@@ -1,86 +1,101 @@
 extends Node2D
 
-@onready var network: Node2D = $Network
-@onready var data_spawner: Node2D = $DataSpawner
-@onready var cursor: Area2D = $Cursor
+@onready var diver: Node2D = $Diver
+@onready var fish_spawner: Node2D = $FishSpawner
+@onready var oxygen_timer: Timer = $OxygenTimer
 @onready var hud: CanvasLayer = $HUD
 @onready var upgrade_shop: CanvasLayer = $UpgradeShop
-@onready var training_timer: Timer = $EpochTimer
 
-var round_ended: bool = false
+# Fade transition
+var phase_fade: float = 0.0
+const PHASE_FADE_DURATION = 0.4
+var pending_state: String = ""
+
+const DIVE_TRAVEL_DURATION = 1.5
+const RESURFACE_TRAVEL_DURATION = 1.0
+var travel_timer: float = 0.0
 
 
 func _ready() -> void:
-	# Dark background
-	RenderingServer.set_default_clear_color(Color(0.04, 0.04, 0.08))
+	RenderingServer.set_default_clear_color(Color(0.04, 0.08, 0.14))
 
-	# Connect signals
-	upgrade_shop.next_epoch_pressed.connect(_start_training)
-	GameData.stage_changed.connect(_on_stage_changed)
-	training_timer.timeout.connect(_on_training_timeout)
-	data_spawner.batch_complete.connect(_on_batch_complete)
+	upgrade_shop.next_dive_pressed.connect(_on_dive_pressed)
+	oxygen_timer.timeout.connect(_on_oxygen_tick)
 
-	# Position network at screen center
-	var viewport_size = get_viewport_rect().size
-	network.position = viewport_size / 2.0
-
-	# Show upgrade tree first — player starts here
-	cursor.visible = false
+	# Start on surface with shop open
+	GameData.set_dive_state("surface")
 	upgrade_shop.show_shop()
+	if diver.has_method("set_visible_in_water"):
+		diver.set_visible_in_water(false)
 
 
-func _process(_delta: float) -> void:
-	if GameData.is_epoch_active:
-		hud.update_timer(training_timer.time_left)
-		hud.update_batch_count(data_spawner.get_remaining_count(), data_spawner.batch_total)
+func _process(delta: float) -> void:
+	match GameData.dive_state:
+		"diving":
+			travel_timer += delta
+			# Diver travels from top to center — managed in diver.gd via a t in [0,1]
+			if diver.has_method("update_dive_travel"):
+				diver.update_dive_travel(clampf(travel_timer / DIVE_TRAVEL_DURATION, 0.0, 1.0))
+			if travel_timer >= DIVE_TRAVEL_DURATION:
+				_enter_underwater()
+
+		"underwater":
+			# Oxygen drains via OxygenTimer (1/sec); nothing to tick here
+			pass
+
+		"resurfacing":
+			travel_timer += delta
+			if diver.has_method("update_resurface_travel"):
+				diver.update_resurface_travel(clampf(travel_timer / RESURFACE_TRAVEL_DURATION, 0.0, 1.0))
+			if travel_timer >= RESURFACE_TRAVEL_DURATION:
+				_enter_surface()
 
 
-func _start_training() -> void:
-	round_ended = false
-	GameData.is_epoch_active = true
-	GameData.training_round += 1
-
-	# Compute resets each round
-	GameData.compute = 0.0
-	GameData.compute_changed.emit(GameData.compute)
-
-	var duration = GameData.get_training_duration()
-	training_timer.wait_time = duration
-	training_timer.one_shot = true
-	training_timer.start()
-
-	# Start the batch
-	data_spawner.start_batch()
-
-	cursor.visible = true
+func _on_dive_pressed() -> void:
+	GameData.start_dive()
+	travel_timer = 0.0
+	upgrade_shop.hide_shop()
+	if diver.has_method("set_visible_in_water"):
+		diver.set_visible_in_water(true)
 
 
-func _end_round() -> void:
-	if round_ended:
+func _enter_underwater() -> void:
+	GameData.set_dive_state("underwater")
+	oxygen_timer.start()
+	if fish_spawner.has_method("start_spawning"):
+		fish_spawner.start_spawning()
+	if diver.has_method("enable_fishing"):
+		diver.enable_fishing(true)
+
+
+func _on_oxygen_tick() -> void:
+	if GameData.dive_state != "underwater":
 		return
-	round_ended = true
+	GameData.set_oxygen(GameData.oxygen - 1.0)
+	if GameData.oxygen <= 0.0:
+		_begin_resurface(true)
 
-	GameData.is_epoch_active = false
-	cursor.visible = false
-	training_timer.stop()
-	hud.update_timer(0.0)
 
-	# Clear remaining data points
-	data_spawner.clear_all_points()
+func begin_manual_resurface() -> void:
+	if GameData.dive_state == "underwater":
+		_begin_resurface(false)
 
-	# Show upgrade shop
+
+func _begin_resurface(lost_oxygen: bool) -> void:
+	oxygen_timer.stop()
+	if fish_spawner.has_method("stop_spawning"):
+		fish_spawner.stop_spawning()
+	if diver.has_method("enable_fishing"):
+		diver.enable_fishing(false)
+	GameData.set_dive_state("resurfacing")
+	travel_timer = 0.0
+	# Cache whether oxygen was lost to be handled in _enter_surface
+	set_meta("lost_oxygen", lost_oxygen)
+
+
+func _enter_surface() -> void:
+	var lost_oxygen = get_meta("lost_oxygen", false)
+	GameData.finish_dive(lost_oxygen)
+	if diver.has_method("set_visible_in_water"):
+		diver.set_visible_in_water(false)
 	upgrade_shop.show_shop()
-
-
-func _on_training_timeout() -> void:
-	_end_round()
-
-
-func _on_batch_complete() -> void:
-	# All data consumed — end round early
-	_end_round()
-
-
-func _on_stage_changed(stage_index: int) -> void:
-	network.on_stage_changed()
-	print("Stage advanced to: ", GameData.stages[stage_index]["name"])
