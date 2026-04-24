@@ -4,9 +4,10 @@ var oxygen_bar: ProgressBar
 var oxygen_label: Label
 var dive_cash_label: Label
 var total_cash_label: Label
+var phase_label: Label
 var spear_row: HBoxContainer
 var resurface_button: Button
-var _spear_count_cache: int = -1
+var depth_labels: Dictionary = {}  # tier -> Label
 
 
 func _ready() -> void:
@@ -14,6 +15,9 @@ func _ready() -> void:
 	GameData.cash_changed.connect(_on_cash_changed)
 	GameData.oxygen_changed.connect(_on_oxygen_changed)
 	GameData.dive_state_changed.connect(_on_dive_state_changed)
+	GameData.day_changed.connect(func(_d): _refresh_phase())
+	GameData.tanks_changed.connect(func(_r, _t): _refresh_phase())
+	GameData.depth_changed.connect(func(_d): _refresh_depth())
 	_refresh()
 
 
@@ -21,32 +25,41 @@ func _build_ui() -> void:
 	# Top bar
 	var top = MarginContainer.new()
 	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top.offset_bottom = 80
+	top.offset_bottom = 90
 	top.add_theme_constant_override("margin_left", 20)
 	top.add_theme_constant_override("margin_right", 20)
-	top.add_theme_constant_override("margin_top", 15)
+	top.add_theme_constant_override("margin_top", 12)
 	add_child(top)
 
 	var top_hbox = HBoxContainer.new()
 	top_hbox.add_theme_constant_override("separation", 30)
 	top.add_child(top_hbox)
 
-	# Total cash (left)
+	# Left: total cash + phase label
+	var left_vbox = VBoxContainer.new()
+	left_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_hbox.add_child(left_vbox)
+
 	total_cash_label = Label.new()
 	total_cash_label.text = "$0"
 	total_cash_label.add_theme_font_size_override("font_size", 22)
 	total_cash_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
-	total_cash_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top_hbox.add_child(total_cash_label)
+	left_vbox.add_child(total_cash_label)
 
-	# Oxygen bar (center)
+	phase_label = Label.new()
+	phase_label.text = "Day 1 · Morning"
+	phase_label.add_theme_font_size_override("font_size", 12)
+	phase_label.add_theme_color_override("font_color", Color(0.75, 0.85, 1.0))
+	left_vbox.add_child(phase_label)
+
+	# Center: oxygen
 	var oxy_vbox = VBoxContainer.new()
 	oxy_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	oxy_vbox.custom_minimum_size = Vector2(300, 0)
 	top_hbox.add_child(oxy_vbox)
 
 	oxygen_label = Label.new()
-	oxygen_label.text = "OXYGEN 45s"
+	oxygen_label.text = "OXYGEN"
 	oxygen_label.add_theme_font_size_override("font_size", 12)
 	oxygen_label.add_theme_color_override("font_color", Color(0.55, 0.8, 1.0))
 	oxygen_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -54,8 +67,8 @@ func _build_ui() -> void:
 
 	oxygen_bar = ProgressBar.new()
 	oxygen_bar.min_value = 0.0
-	oxygen_bar.max_value = 45.0
-	oxygen_bar.value = 45.0
+	oxygen_bar.max_value = GameData.get_oxygen_capacity()
+	oxygen_bar.value = GameData.oxygen
 	oxygen_bar.show_percentage = false
 	oxygen_bar.custom_minimum_size = Vector2(300, 18)
 	var bar_bg = StyleBoxFlat.new()
@@ -68,7 +81,7 @@ func _build_ui() -> void:
 	oxygen_bar.add_theme_stylebox_override("fill", bar_fg)
 	oxy_vbox.add_child(oxygen_bar)
 
-	# Dive cash (right)
+	# Right: dive cash
 	dive_cash_label = Label.new()
 	dive_cash_label.text = ""
 	dive_cash_label.add_theme_font_size_override("font_size", 22)
@@ -76,6 +89,30 @@ func _build_ui() -> void:
 	dive_cash_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	dive_cash_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top_hbox.add_child(dive_cash_label)
+
+	# Depth indicator (left edge, below top bar)
+	var depth_margin = MarginContainer.new()
+	depth_margin.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	depth_margin.offset_top = 100
+	depth_margin.offset_right = 140
+	depth_margin.add_theme_constant_override("margin_left", 18)
+	add_child(depth_margin)
+
+	var depth_vbox = VBoxContainer.new()
+	depth_vbox.add_theme_constant_override("separation", 4)
+	depth_margin.add_child(depth_vbox)
+
+	var depth_header = Label.new()
+	depth_header.text = "DEPTH"
+	depth_header.add_theme_font_size_override("font_size", 10)
+	depth_header.add_theme_color_override("font_color", Color(0.6, 0.7, 0.9))
+	depth_vbox.add_child(depth_header)
+
+	for tier in ["shallow", "mid", "deep"]:
+		var lbl = Label.new()
+		lbl.add_theme_font_size_override("font_size", 14)
+		depth_vbox.add_child(lbl)
+		depth_labels[tier] = lbl
 
 	# Spear inventory (bottom-center)
 	var bottom = MarginContainer.new()
@@ -109,6 +146,8 @@ func _refresh() -> void:
 	_on_cash_changed(GameData.cash)
 	_on_oxygen_changed(GameData.oxygen)
 	_on_dive_state_changed(GameData.dive_state)
+	_refresh_phase()
+	_refresh_depth()
 	_rebuild_spear_row()
 
 
@@ -124,8 +163,7 @@ func _on_oxygen_changed(value: float) -> void:
 	oxygen_bar.max_value = GameData.get_oxygen_capacity()
 	oxygen_bar.value = value
 	oxygen_label.text = "OXYGEN %.0fs" % value
-	# Color shifts as oxygen empties
-	var ratio = value / GameData.get_oxygen_capacity()
+	var ratio = value / max(0.001, GameData.get_oxygen_capacity())
 	var bar_fg = StyleBoxFlat.new()
 	bar_fg.bg_color = Color(1.0, 0.3, 0.3).lerp(Color(0.3, 0.7, 1.0), ratio)
 	bar_fg.set_corner_radius_all(6)
@@ -138,7 +176,36 @@ func _on_dive_state_changed(state: String) -> void:
 	spear_row.visible = underwater or state == "diving" or state == "resurfacing"
 	if state == "underwater":
 		_rebuild_spear_row()
+	_refresh_phase()
 	_on_cash_changed(0.0)
+
+
+func _refresh_phase() -> void:
+	if phase_label == null:
+		return
+	var phase = GameData.get_current_phase().capitalize()
+	var dive_num = GameData.dive_number_today
+	if GameData.dive_state == "surface":
+		dive_num = GameData.dive_number_today + 1
+	var tank_total = GameData.get_tank_count()
+	phase_label.text = "Day %d · %s · Dive %d of %d" % [GameData.day_number, phase, dive_num, tank_total]
+
+
+func _refresh_depth() -> void:
+	for tier in depth_labels:
+		var lbl: Label = depth_labels[tier]
+		var unlocked = GameData.can_select_depth(tier)
+		var selected = tier == GameData.selected_depth
+		var marker = "●" if selected else "○"
+		if not unlocked:
+			marker = "✕"
+		lbl.text = "%s %s" % [marker, tier.capitalize()]
+		if selected:
+			lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+		elif unlocked:
+			lbl.add_theme_color_override("font_color", Color(0.75, 0.85, 0.95))
+		else:
+			lbl.add_theme_color_override("font_color", Color(0.4, 0.45, 0.55))
 
 
 func _rebuild_spear_row() -> void:
@@ -154,7 +221,6 @@ func _rebuild_spear_row() -> void:
 
 
 func update_spear_state(index: int, state: String) -> void:
-	# state: "ready" | "flying" | "reeling"
 	if spear_row == null:
 		return
 	if index < 0 or index >= spear_row.get_child_count():

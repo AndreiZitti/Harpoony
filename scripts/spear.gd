@@ -9,9 +9,8 @@ var attached_fish: Node2D = null
 
 # Movement
 var flight_dir: Vector2 = Vector2.ZERO
-var flight_target: Vector2 = Vector2.ZERO
 var flight_distance_remaining: float = 0.0
-const MISS_OVERSHOOT = 80.0
+const MAX_FLIGHT_DISTANCE = 600.0
 
 
 func is_ready() -> bool:
@@ -22,14 +21,14 @@ func _ready() -> void:
 	_sync_hud()
 
 
-func throw_at(world_target: Vector2) -> void:
+func throw_in_direction(dir: Vector2) -> void:
 	if state != State.READY:
 		return
-	# Diver is at own global position; spear starts there too
+	if dir.length() < 0.001:
+		return
 	global_position = diver_node.global_position
-	flight_target = world_target
-	flight_dir = (world_target - global_position).normalized()
-	flight_distance_remaining = global_position.distance_to(world_target)
+	flight_dir = dir.normalized()
+	flight_distance_remaining = MAX_FLIGHT_DISTANCE
 	state = State.FLYING
 	_sync_hud()
 	queue_redraw()
@@ -57,7 +56,6 @@ func recall_instant() -> void:
 func _process(delta: float) -> void:
 	match state:
 		State.READY:
-			# Sit on diver
 			if diver_node:
 				global_position = diver_node.global_position
 		State.FLYING:
@@ -66,7 +64,6 @@ func _process(delta: float) -> void:
 			global_position += flight_dir * step
 			flight_distance_remaining -= step
 
-			# Hit check against fish group
 			for fish in get_tree().get_nodes_in_group("fish"):
 				if not is_instance_valid(fish) or fish.speared:
 					continue
@@ -75,14 +72,14 @@ func _process(delta: float) -> void:
 					attach_to_fish(fish)
 					return
 
-			if flight_distance_remaining <= -MISS_OVERSHOOT:
+			if flight_distance_remaining <= 0.0:
 				state = State.REELING_MISS
 				_sync_hud()
 		State.REELING_MISS:
-			var speed = GameData.get_spear_speed()  # Miss recalls at spear speed (fast)
+			var speed = GameData.get_spear_speed()
 			_reel_toward_diver(speed, delta)
 		State.REELING_HIT:
-			var speed = GameData.get_reel_speed()  # Hit reels slower
+			var speed = GameData.get_reel_speed()
 			_reel_toward_diver(speed, delta)
 			if attached_fish and is_instance_valid(attached_fish):
 				attached_fish.global_position = global_position
@@ -125,17 +122,18 @@ func _sync_hud() -> void:
 func _draw() -> void:
 	if state == State.READY:
 		return
-	# Taut line from diver to spear
 	if diver_node:
 		var local_diver = to_local(diver_node.global_position)
 		draw_line(Vector2.ZERO, local_diver, Color(0.9, 0.9, 0.95, 0.6), 1.5)
-	# Spear body
 	var length = 20.0
 	var width = 3.0
-	var angle = flight_dir.angle() if state == State.FLYING else (diver_node.global_position - global_position).angle() + PI
+	var angle = flight_dir.angle()
+	if state != State.FLYING:
+		var reel_vec = diver_node.global_position - global_position if diver_node else Vector2.RIGHT
+		if reel_vec.length() > 0.001:
+			angle = reel_vec.angle() + PI
 	draw_set_transform(Vector2.ZERO, angle, Vector2.ONE)
 	draw_rect(Rect2(-length / 2, -width / 2, length, width), Color(0.85, 0.85, 0.9))
-	# Tip triangle
 	var tip_a = Vector2(length / 2, 0)
 	var tip_b = Vector2(length / 2 - 6, -4)
 	var tip_c = Vector2(length / 2 - 6, 4)

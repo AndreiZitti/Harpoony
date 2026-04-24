@@ -42,7 +42,6 @@ func _process(delta: float) -> void:
 	age += delta
 	var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
 	global_position += velocity * delta + Vector2(0, wave_y)
-	# Despawn when fully off-screen
 	var viewport = get_viewport_rect().size
 	var margin = 60.0
 	if global_position.x < -margin or global_position.x > viewport.x + margin:
@@ -64,20 +63,19 @@ func get_effective_hit_radius() -> float:
 
 
 func _draw() -> void:
+	var tint = GameData.get_fish_tint()
+	var body_color = color * tint
 	var facing_right = velocity.x >= 0
 	var dir = 1.0 if facing_right else -1.0
-	# Body ellipse (approximate via scaled circle)
 	var body_len = hit_radius * 1.8
 	var body_h = hit_radius * 1.0
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# Body
 	var pts = PackedVector2Array()
 	var n = 16
 	for i in n:
 		var a = float(i) / n * TAU
 		pts.append(Vector2(cos(a) * body_len * 0.5, sin(a) * body_h * 0.5))
-	draw_colored_polygon(pts, color)
-	# Tail triangle
+	draw_colored_polygon(pts, body_color)
 	var tx = -body_len * 0.5 * dir
 	draw_polygon(
 		PackedVector2Array([
@@ -85,7 +83,6 @@ func _draw() -> void:
 			Vector2(tx - 8 * dir, -6),
 			Vector2(tx - 8 * dir, 6),
 		]),
-		PackedColorArray([color.darkened(0.15)])
+		PackedColorArray([body_color.darkened(0.15)])
 	)
-	# Eye
 	draw_circle(Vector2(body_len * 0.3 * dir, -body_h * 0.2), 1.6, Color.BLACK)
