@@ -1,5 +1,11 @@
 extends Node
 
+
+func _ready() -> void:
+	for key in upgrades.keys():
+		assert(key in upgrade_levels, "upgrade_levels missing key: %s" % key)
+
+
 # Signals
 signal cash_changed(amount: float)
 signal oxygen_changed(oxygen: float)
