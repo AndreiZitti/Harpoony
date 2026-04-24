@@ -65,8 +65,17 @@ func _process(delta: float) -> void:
 			var step = speed * delta
 			global_position += flight_dir * step
 			flight_distance_remaining -= step
+
+			# Hit check against fish group
+			for fish in get_tree().get_nodes_in_group("fish"):
+				if not is_instance_valid(fish) or fish.speared:
+					continue
+				var r = fish.get_effective_hit_radius() if fish.has_method("get_effective_hit_radius") else 12.0
+				if global_position.distance_to(fish.global_position) <= r:
+					attach_to_fish(fish)
+					return
+
 			if flight_distance_remaining <= -MISS_OVERSHOOT:
-				# Miss — begin fast reel
 				state = State.REELING_MISS
 				_sync_hud()
 		State.REELING_MISS:
