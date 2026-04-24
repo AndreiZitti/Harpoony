@@ -50,6 +50,8 @@ func _process(delta: float) -> void:
 			if travel_timer >= RESURFACE_TRAVEL_DURATION:
 				_enter_surface()
 
+	queue_redraw()
+
 
 func _on_dive_pressed() -> void:
 	GameData.start_dive()
@@ -99,3 +101,44 @@ func _enter_surface() -> void:
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(false)
 	upgrade_shop.show_shop()
+
+
+func _draw() -> void:
+	var viewport = get_viewport_rect().size
+	var water_surface_y = 140.0
+
+	# Sky gradient (top)
+	for i in 8:
+		var t = i / 8.0
+		var y = t * water_surface_y
+		var band_h = water_surface_y / 8.0
+		var c = Color(0.4, 0.6, 0.85).lerp(Color(0.1, 0.3, 0.55), t)
+		draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
+
+	# Water (below surface)
+	for i in 12:
+		var t = i / 12.0
+		var y = water_surface_y + t * (viewport.y - water_surface_y)
+		var band_h = (viewport.y - water_surface_y) / 12.0
+		var c = Color(0.08, 0.2, 0.4).lerp(Color(0.02, 0.05, 0.12), t)
+		draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
+
+	# Water surface line
+	draw_line(Vector2(0, water_surface_y), Vector2(viewport.x, water_surface_y), Color(0.6, 0.8, 1.0, 0.4), 1.5)
+
+	# Boat silhouette (only visible when surface or transitioning)
+	if GameData.dive_state in ["surface", "diving", "resurfacing"]:
+		var boat_x = viewport.x * 0.5
+		var boat_y = water_surface_y
+		var boat_w = 180.0
+		draw_polygon(
+			PackedVector2Array([
+				Vector2(boat_x - boat_w * 0.5, boat_y),
+				Vector2(boat_x - boat_w * 0.3, boat_y - 25),
+				Vector2(boat_x + boat_w * 0.3, boat_y - 25),
+				Vector2(boat_x + boat_w * 0.5, boat_y),
+			]),
+			PackedColorArray([Color(0.2, 0.15, 0.12)])
+		)
+		# Mast
+		draw_line(Vector2(boat_x, boat_y - 25), Vector2(boat_x, boat_y - 90), Color(0.3, 0.25, 0.2), 3.0)
