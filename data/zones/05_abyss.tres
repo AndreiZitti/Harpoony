@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ZoneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/zone_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"abyss"
+display_name = "Abyss"
+depth_meters = 250
+unlock_cost = 4000
+water_top = Color(0.01, 0.02, 0.08, 1)
+water_bottom = Color(0.0, 0.0, 0.02, 1)
+ambient_tint = Color(0.4, 0.55, 0.95, 1)
+spawn_weights = {"sardine": 0.05, "grouper": 0.25, "tuna": 0.7}

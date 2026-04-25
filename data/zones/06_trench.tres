@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ZoneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/zone_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"trench"
+display_name = "Trench"
+depth_meters = 500
+unlock_cost = 10000
+water_top = Color(0.0, 0.0, 0.02, 1)
+water_bottom = Color(0.0, 0.0, 0.0, 1)
+ambient_tint = Color(0.5, 0.4, 0.8, 1)
+spawn_weights = {"sardine": 0.0, "grouper": 0.1, "tuna": 0.9}

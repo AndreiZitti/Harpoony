@@ -1,6 +1,6 @@
 extends Node2D
 
-const Fish = preload("res://scenes/fish.tscn")
+const FishScene = preload("res://scenes/fish.tscn")
 
 var spawn_timer: float = 0.0
 var active: bool = false
@@ -35,14 +35,14 @@ func _spawn_one() -> void:
 	var from_right = randf() < 0.5
 	var x = viewport.x + 40.0 if from_right else -40.0
 	var y = randf_range(viewport.y * 0.25, viewport.y * 0.85)
-	var fish = Fish.instantiate()
+	var fish: Fish = FishScene.instantiate()
 	fish.add_to_group("fish")
 	get_tree().current_scene.add_child(fish)
 	fish.setup(species, Vector2(x, y), not from_right)
 
 
 func _pick_species() -> String:
-	var weights = GameData.get_depth_weights()
+	var weights = GameData.get_zone_spawn_weights()
 	var total = 0.0
 	for w in weights.values():
 		total += w

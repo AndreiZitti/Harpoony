@@ -4,24 +4,28 @@ extends Node
 func _ready() -> void:
 	for key in upgrades.keys():
 		assert(key in upgrade_levels, "upgrade_levels missing key: %s" % key)
+	_load_zones()
 	_begin_day()
 
+
+enum DiveState { SURFACE, DIVING, UNDERWATER, RESURFACING }
 
 # Signals
 signal cash_changed(amount: float)
 signal oxygen_changed(oxygen: float)
-signal dive_state_changed(state: String)  # "surface" | "diving" | "underwater" | "resurfacing"
+signal dive_state_changed(state: int)  # DiveState
 signal day_changed(day: int)
 signal tanks_changed(remaining: int, total: int)
-signal depth_changed(depth: String)
+signal zone_changed(zone: ZoneConfig)
+signal zone_unlocked(idx: int)
 
 # Persistent state
 var cash: float = 0.0
 var day_number: int = 1
 var cheat_mode: bool = false
-var selected_depth: String = "shallow"  # "shallow" | "mid" | "deep"
-var mid_tier_unlocked: bool = false
-var deep_tier_unlocked: bool = false
+var zones: Array[ZoneConfig] = []
+var selected_zone_index: int = 0
+var unlocked_zone_index: int = 0  # highest unlocked index (0..zones.size()-1)
 
 # Per-day state
 var dive_number_today: int = 0
@@ -31,7 +35,7 @@ var day_cash: float = 0.0
 # Per-dive state
 var dive_cash: float = 0.0
 var oxygen: float = 10.0
-var dive_state: String = "surface"
+var dive_state: int = DiveState.SURFACE
 
 # Upgrade levels (leveled, multi-purchase)
 var upgrade_levels: Dictionary = {
@@ -90,11 +94,15 @@ var upgrades: Dictionary = {
 	},
 }
 
-# One-time tier unlocks (not leveled)
-const TIER_COSTS = {
-	"mid": 400,
-	"deep": 2000,
-}
+# Zones loaded from data/zones/*.tres
+const ZONE_PATHS = [
+	"res://data/zones/01_reef.tres",
+	"res://data/zones/02_kelp.tres",
+	"res://data/zones/03_twilight.tres",
+	"res://data/zones/04_midnight.tres",
+	"res://data/zones/05_abyss.tres",
+	"res://data/zones/06_trench.tres",
+]
 
 # Day/night palettes — surface view only
 const PHASE_PALETTES = {
@@ -120,14 +128,6 @@ const PHASE_PALETTES = {
 		"fish_tint": Color(0.6, 0.7, 0.9),
 	},
 }
-
-# Depth tier → species spawn weights
-const DEPTH_SPAWN_WEIGHTS = {
-	"shallow": {"sardine": 0.85, "grouper": 0.14, "tuna": 0.01},
-	"mid": {"sardine": 0.35, "grouper": 0.50, "tuna": 0.15},
-	"deep": {"sardine": 0.05, "grouper": 0.25, "tuna": 0.70},
-}
-
 
 # --- Derived getters ---
 
@@ -173,7 +173,7 @@ func _phase_for_dive(n: int) -> String:
 func get_current_phase() -> String:
 	# Surface: phase of upcoming dive. Underwater: phase of current dive.
 	var n = dive_number_today
-	if dive_state == "surface":
+	if dive_state == DiveState.SURFACE:
 		n = dive_number_today + 1
 	return _phase_for_dive(n)
 
@@ -186,28 +186,59 @@ func get_fish_tint() -> Color:
 	return get_palette()["fish_tint"]
 
 
-# --- Depth ---
+# --- Zones ---
 
-func get_depth_weights() -> Dictionary:
-	return DEPTH_SPAWN_WEIGHTS[selected_depth]
-
-
-func can_select_depth(tier: String) -> bool:
-	match tier:
-		"shallow":
-			return true
-		"mid":
-			return mid_tier_unlocked
-		"deep":
-			return deep_tier_unlocked
-		_:
-			return false
+func _load_zones() -> void:
+	zones.clear()
+	for path in ZONE_PATHS:
+		var z: ZoneConfig = load(path)
+		assert(z != null, "Failed to load zone: %s" % path)
+		zones.append(z)
 
 
-func set_depth(tier: String) -> void:
-	if can_select_depth(tier):
-		selected_depth = tier
-		depth_changed.emit(tier)
+func get_current_zone() -> ZoneConfig:
+	return zones[selected_zone_index]
+
+
+func get_zone_spawn_weights() -> Dictionary:
+	return get_current_zone().spawn_weights
+
+
+func can_select_zone(idx: int) -> bool:
+	return idx >= 0 and idx <= unlocked_zone_index and idx < zones.size()
+
+
+func select_zone(idx: int) -> void:
+	if can_select_zone(idx) and idx != selected_zone_index:
+		selected_zone_index = idx
+		zone_changed.emit(get_current_zone())
+
+
+func can_unlock_next_zone() -> bool:
+	var next = unlocked_zone_index + 1
+	if next >= zones.size():
+		return false
+	if cheat_mode:
+		return true
+	return cash >= zones[next].unlock_cost
+
+
+func unlock_next_zone() -> bool:
+	if not can_unlock_next_zone():
+		return false
+	unlocked_zone_index += 1
+	if not cheat_mode:
+		cash -= zones[unlocked_zone_index].unlock_cost
+	cash_changed.emit(cash)
+	zone_unlocked.emit(unlocked_zone_index)
+	return true
+
+
+func get_next_zone_cost() -> int:
+	var next = unlocked_zone_index + 1
+	if next >= zones.size():
+		return -1
+	return zones[next].unlock_cost
 
 
 # --- Cash / oxygen mutators ---
@@ -222,7 +253,7 @@ func set_oxygen(value: float) -> void:
 	oxygen_changed.emit(oxygen)
 
 
-func set_dive_state(state: String) -> void:
+func set_dive_state(state: int) -> void:
 	dive_state = state
 	dive_state_changed.emit(state)
 
@@ -234,7 +265,7 @@ func _begin_day() -> void:
 	dive_number_today = 0
 	day_cash = 0.0
 	set_oxygen(get_oxygen_capacity())
-	set_dive_state("surface")
+	set_dive_state(DiveState.SURFACE)
 	tanks_changed.emit(tanks_remaining, get_tank_count())
 	day_changed.emit(day_number)
 
@@ -251,7 +282,7 @@ func start_dive() -> void:
 	tanks_remaining -= 1
 	dive_cash = 0.0
 	set_oxygen(get_oxygen_capacity())
-	set_dive_state("diving")
+	set_dive_state(DiveState.DIVING)
 	tanks_changed.emit(tanks_remaining, get_tank_count())
 
 
@@ -260,7 +291,7 @@ func finish_dive() -> void:
 	day_cash += dive_cash
 	dive_cash = 0.0
 	cash_changed.emit(cash)
-	set_dive_state("surface")
+	set_dive_state(DiveState.SURFACE)
 
 
 func is_day_over() -> bool:
@@ -296,34 +327,6 @@ func get_upgrade_cost(key: String) -> int:
 	if level >= upgrade["max_level"]:
 		return -1
 	return upgrade["costs"][level]
-
-
-# --- Tier unlocks ---
-
-func can_buy_tier(tier: String) -> bool:
-	if tier == "mid" and mid_tier_unlocked:
-		return false
-	if tier == "deep":
-		if not mid_tier_unlocked:
-			return false
-		if deep_tier_unlocked:
-			return false
-	if cheat_mode:
-		return true
-	return cash >= TIER_COSTS[tier]
-
-
-func buy_tier(tier: String) -> bool:
-	if not can_buy_tier(tier):
-		return false
-	if not cheat_mode:
-		cash -= TIER_COSTS[tier]
-	if tier == "mid":
-		mid_tier_unlocked = true
-	elif tier == "deep":
-		deep_tier_unlocked = true
-	cash_changed.emit(cash)
-	return true
 
 
 # --- Cheat mode ---

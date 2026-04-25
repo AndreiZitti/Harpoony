@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ZoneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/zone_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"kelp"
+display_name = "Kelp Forest"
+depth_meters = 30
+unlock_cost = 200
+water_top = Color(0.1, 0.4, 0.4, 1)
+water_bottom = Color(0.05, 0.2, 0.25, 1)
+ambient_tint = Color(0.9, 1.0, 0.85, 1)
+spawn_weights = {"sardine": 0.5, "grouper": 0.4, "tuna": 0.1}

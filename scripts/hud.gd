@@ -7,7 +7,15 @@ var total_cash_label: Label
 var phase_label: Label
 var spear_row: HBoxContainer
 var resurface_button: Button
-var depth_labels: Dictionary = {}  # tier -> Label
+var zone_name_label: Label
+var zone_depth_label: Label
+var popups: Control
+
+const SPECIES_COLOR = {
+	"sardine": Color(0.85, 0.92, 1.0),
+	"grouper": Color(1.0, 0.75, 0.4),
+	"tuna": Color(0.6, 0.8, 1.0),
+}
 
 
 func _ready() -> void:
@@ -17,7 +25,8 @@ func _ready() -> void:
 	GameData.dive_state_changed.connect(_on_dive_state_changed)
 	GameData.day_changed.connect(func(_d): _refresh_phase())
 	GameData.tanks_changed.connect(func(_r, _t): _refresh_phase())
-	GameData.depth_changed.connect(func(_d): _refresh_depth())
+	GameData.zone_changed.connect(func(_z): _refresh_depth())
+	GameData.zone_unlocked.connect(func(_i): _refresh_depth())
 	_refresh()
 
 
@@ -108,11 +117,15 @@ func _build_ui() -> void:
 	depth_header.add_theme_color_override("font_color", Color(0.6, 0.7, 0.9))
 	depth_vbox.add_child(depth_header)
 
-	for tier in ["shallow", "mid", "deep"]:
-		var lbl = Label.new()
-		lbl.add_theme_font_size_override("font_size", 14)
-		depth_vbox.add_child(lbl)
-		depth_labels[tier] = lbl
+	zone_name_label = Label.new()
+	zone_name_label.add_theme_font_size_override("font_size", 16)
+	zone_name_label.add_theme_color_override("font_color", Color(0.95, 0.95, 1.0))
+	depth_vbox.add_child(zone_name_label)
+
+	zone_depth_label = Label.new()
+	zone_depth_label.add_theme_font_size_override("font_size", 12)
+	zone_depth_label.add_theme_color_override("font_color", Color(0.6, 0.75, 1.0))
+	depth_vbox.add_child(zone_depth_label)
 
 	# Spear inventory (bottom-center)
 	var bottom = MarginContainer.new()
@@ -141,6 +154,29 @@ func _build_ui() -> void:
 	resurface_button.pressed.connect(_on_resurface_pressed)
 	btn_margin.add_child(resurface_button)
 
+	# Popup layer (cash floats, etc.)
+	popups = Control.new()
+	popups.set_anchors_preset(Control.PRESET_FULL_RECT)
+	popups.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(popups)
+
+
+func spawn_cash_popup(value: int, world_pos: Vector2, species: String) -> void:
+	var label := Label.new()
+	label.text = "+$%d" % value
+	label.add_theme_font_size_override("font_size", 18)
+	var tint: Color = SPECIES_COLOR.get(species, Color.WHITE)
+	label.add_theme_color_override("font_color", tint)
+	# HUD has no Camera2D in this project — world == screen coords
+	label.position = world_pos - Vector2(20, 0)
+	label.z_index = 100
+	popups.add_child(label)
+	var t := create_tween()
+	t.set_parallel(true)
+	t.tween_property(label, "position:y", label.position.y - 60.0, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	t.tween_property(label, "modulate:a", 0.0, 0.4).set_delay(0.3)
+	t.chain().tween_callback(label.queue_free)
+
 
 func _refresh() -> void:
 	_on_cash_changed(GameData.cash)
@@ -153,7 +189,7 @@ func _refresh() -> void:
 
 func _on_cash_changed(_amount: float) -> void:
 	total_cash_label.text = "$%d" % int(GameData.cash)
-	if GameData.dive_state == "underwater":
+	if GameData.dive_state == GameData.DiveState.UNDERWATER:
 		dive_cash_label.text = "+$%d" % int(GameData.dive_cash)
 	else:
 		dive_cash_label.text = ""
@@ -170,11 +206,11 @@ func _on_oxygen_changed(value: float) -> void:
 	oxygen_bar.add_theme_stylebox_override("fill", bar_fg)
 
 
-func _on_dive_state_changed(state: String) -> void:
-	var underwater = state == "underwater"
+func _on_dive_state_changed(state: int) -> void:
+	var underwater = state == GameData.DiveState.UNDERWATER
 	resurface_button.visible = underwater
-	spear_row.visible = underwater or state == "diving" or state == "resurfacing"
-	if state == "underwater":
+	spear_row.visible = state != GameData.DiveState.SURFACE
+	if underwater:
 		_rebuild_spear_row()
 	_refresh_phase()
 	_on_cash_changed(0.0)
@@ -185,27 +221,20 @@ func _refresh_phase() -> void:
 		return
 	var phase = GameData.get_current_phase().capitalize()
 	var dive_num = GameData.dive_number_today
-	if GameData.dive_state == "surface":
+	if GameData.dive_state == GameData.DiveState.SURFACE:
 		dive_num = GameData.dive_number_today + 1
 	var tank_total = GameData.get_tank_count()
 	phase_label.text = "Day %d · %s · Dive %d of %d" % [GameData.day_number, phase, dive_num, tank_total]
 
 
 func _refresh_depth() -> void:
-	for tier in depth_labels:
-		var lbl: Label = depth_labels[tier]
-		var unlocked = GameData.can_select_depth(tier)
-		var selected = tier == GameData.selected_depth
-		var marker = "●" if selected else "○"
-		if not unlocked:
-			marker = "✕"
-		lbl.text = "%s %s" % [marker, tier.capitalize()]
-		if selected:
-			lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
-		elif unlocked:
-			lbl.add_theme_color_override("font_color", Color(0.75, 0.85, 0.95))
-		else:
-			lbl.add_theme_color_override("font_color", Color(0.4, 0.45, 0.55))
+	if zone_name_label == null:
+		return
+	var zone := GameData.get_current_zone()
+	if zone == null:
+		return
+	zone_name_label.text = zone.display_name
+	zone_depth_label.text = "%dm  ·  Zone %d/%d" % [zone.depth_meters, GameData.selected_zone_index + 1, GameData.zones.size()]
 
 
 func _rebuild_spear_row() -> void:

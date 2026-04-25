@@ -25,15 +25,11 @@ func get_target_depth_y() -> float:
 	var viewport = get_viewport_rect().size
 	var water_surface_y = 140.0
 	var depth_range = viewport.y - water_surface_y
-	match GameData.selected_depth:
-		"shallow":
-			return water_surface_y + depth_range * 0.25
-		"mid":
-			return water_surface_y + depth_range * 0.5
-		"deep":
-			return water_surface_y + depth_range * 0.75
-		_:
-			return water_surface_y + depth_range * 0.5
+	# Map zone index 0..N-1 → fraction 0.2..0.85 of water column (visual only).
+	var n = max(1, GameData.zones.size())
+	var t = float(GameData.selected_zone_index) / float(max(1, n - 1))
+	var frac = lerpf(0.2, 0.85, t)
+	return water_surface_y + depth_range * frac
 
 
 func set_visible_in_water(flag: bool) -> void:
