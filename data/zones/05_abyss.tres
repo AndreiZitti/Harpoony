@@ -11,4 +11,4 @@ unlock_cost = 4000
 water_top = Color(0.01, 0.02, 0.08, 1)
 water_bottom = Color(0.0, 0.0, 0.02, 1)
 ambient_tint = Color(0.4, 0.55, 0.95, 1)
-spawn_weights = {"sardine": 0.05, "grouper": 0.25, "tuna": 0.7}
+spawn_weights = {"grouper": 0.1, "tuna": 0.35, "squid": 0.25, "anglerfish": 0.2, "lanternfish": 0.1}

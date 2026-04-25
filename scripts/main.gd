@@ -12,6 +12,34 @@ const RESURFACE_TRAVEL_DURATION = 1.0
 var travel_timer: float = 0.0
 var _hit_stop_active: bool = false
 
+# Dev mode
+const DEV_KEYMAP = {
+	KEY_1: "sardine",
+	KEY_2: "pufferfish",
+	KEY_3: "mahimahi",
+	KEY_4: "squid",
+	KEY_5: "lanternfish",
+	KEY_6: "anglerfish",
+	KEY_7: "marlin",
+	KEY_8: "grouper",
+	KEY_9: "tuna",
+}
+const DEV_SPECIES_LIST = [
+	["Sardine school", "sardine"],
+	["Pufferfish", "pufferfish"],
+	["Mahi-mahi", "mahimahi"],
+	["Squid", "squid"],
+	["Lanternfish school", "lanternfish"],
+	["Anglerfish", "anglerfish"],
+	["Marlin", "marlin"],
+	["Grouper", "grouper"],
+	["Tuna", "tuna"],
+]
+var dev_mode_active: bool = false
+var _dev_layer: CanvasLayer = null
+var _dev_panel: Control = null
+var _dev_toggle_button: Button = null
+
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.04, 0.08, 0.14))
@@ -25,6 +53,100 @@ func _ready() -> void:
 	day_summary.hide_summary()
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(false)
+
+	_build_dev_panel()
+
+
+func _build_dev_panel() -> void:
+	_dev_layer = CanvasLayer.new()
+	_dev_layer.layer = 100
+	add_child(_dev_layer)
+
+	# Always-visible toggle button in top-right corner
+	_dev_toggle_button = Button.new()
+	_dev_toggle_button.text = "DEV"
+	_dev_toggle_button.position = Vector2(1216, 8)
+	_dev_toggle_button.size = Vector2(56, 28)
+	_dev_toggle_button.modulate = Color(1, 1, 1, 0.7)
+	_dev_toggle_button.pressed.connect(_toggle_dev_mode)
+	_dev_layer.add_child(_dev_toggle_button)
+
+	# Expandable panel with species buttons
+	_dev_panel = Control.new()
+	_dev_panel.position = Vector2(1036, 44)
+	_dev_panel.size = Vector2(236, 460)
+	_dev_layer.add_child(_dev_panel)
+
+	var bg = ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.7)
+	bg.position = Vector2.ZERO
+	bg.size = Vector2(236, 460)
+	_dev_panel.add_child(bg)
+
+	var title = Label.new()
+	title.text = "DEV MODE"
+	title.position = Vector2(12, 8)
+	title.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
+	_dev_panel.add_child(title)
+
+	var hint = Label.new()
+	hint.text = "Click or press 1–9"
+	hint.position = Vector2(12, 32)
+	hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.75))
+	hint.add_theme_font_size_override("font_size", 11)
+	_dev_panel.add_child(hint)
+
+	var y = 60
+	for i in DEV_SPECIES_LIST.size():
+		var entry = DEV_SPECIES_LIST[i]
+		var btn = Button.new()
+		btn.text = "%d  %s" % [i + 1, entry[0]]
+		btn.position = Vector2(12, y)
+		btn.size = Vector2(212, 30)
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var species_id: String = entry[1]
+		btn.pressed.connect(func(): _dev_spawn(species_id))
+		_dev_panel.add_child(btn)
+		y += 34
+
+	var oxy_note = Label.new()
+	oxy_note.text = "Oxygen paused while open"
+	oxy_note.position = Vector2(12, y + 8)
+	oxy_note.add_theme_color_override("font_color", Color(0.55, 0.85, 1.0))
+	oxy_note.add_theme_font_size_override("font_size", 11)
+	_dev_panel.add_child(oxy_note)
+
+	_dev_panel.visible = false
+
+
+func _dev_spawn(species: String) -> void:
+	if fish_spawner.has_method("dev_spawn"):
+		fish_spawner.dev_spawn(species)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var kb = event as InputEventKey
+		if not kb.pressed or kb.echo:
+			return
+		if kb.keycode == KEY_QUOTELEFT or kb.keycode == KEY_F1:
+			_toggle_dev_mode()
+			get_viewport().set_input_as_handled()
+			return
+		if dev_mode_active and DEV_KEYMAP.has(kb.keycode):
+			var species: String = DEV_KEYMAP[kb.keycode]
+			if fish_spawner.has_method("dev_spawn"):
+				fish_spawner.dev_spawn(species)
+			get_viewport().set_input_as_handled()
+
+
+func _toggle_dev_mode() -> void:
+	dev_mode_active = not dev_mode_active
+	if _dev_panel:
+		_dev_panel.visible = dev_mode_active
+	if _dev_toggle_button:
+		_dev_toggle_button.modulate = Color(1, 0.85, 0.4, 1.0) if dev_mode_active else Color(1, 1, 1, 0.7)
+	oxygen_timer.paused = dev_mode_active
 
 
 func _process(delta: float) -> void:

@@ -1,6 +1,7 @@
 extends Node2D
 
 const FishScene = preload("res://scenes/fish.tscn")
+const FishSchoolScript = preload("res://scripts/fish_school.gd")
 
 var spawn_timer: float = 0.0
 var active: bool = false
@@ -31,14 +32,32 @@ func _process(delta: float) -> void:
 
 func _spawn_one() -> void:
 	var species = _pick_species()
+	_spawn_at_random_edge(species)
+
+
+func dev_spawn(species: String) -> void:
+	_spawn_at_random_edge(species)
+
+
+func _spawn_at_random_edge(species: String) -> void:
 	var viewport = get_viewport_rect().size
 	var from_right = randf() < 0.5
 	var x = viewport.x + 40.0 if from_right else -40.0
 	var y = randf_range(viewport.y * 0.25, viewport.y * 0.85)
-	var fish: Fish = FishScene.instantiate()
-	fish.add_to_group("fish")
-	get_tree().current_scene.add_child(fish)
-	fish.setup(species, Vector2(x, y), not from_right)
+	_spawn_species(species, Vector2(x, y), not from_right)
+
+
+func _spawn_species(species: String, pos: Vector2, direction_right: bool) -> void:
+	if species == "sardine" or species == "lanternfish":
+		var school = FishSchoolScript.new()
+		get_tree().current_scene.add_child(school)
+		var count = randi_range(4, 10) if species == "sardine" else randi_range(3, 6)
+		school.setup(species, pos, direction_right, count)
+	else:
+		var fish: Fish = FishScene.instantiate()
+		fish.add_to_group("fish")
+		get_tree().current_scene.add_child(fish)
+		fish.setup(species, pos, direction_right)
 
 
 func _pick_species() -> String:

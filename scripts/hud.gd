@@ -15,6 +15,12 @@ const SPECIES_COLOR = {
 	"sardine": Color(0.85, 0.92, 1.0),
 	"grouper": Color(1.0, 0.75, 0.4),
 	"tuna": Color(0.6, 0.8, 1.0),
+	"pufferfish": Color(1.0, 0.95, 0.55),
+	"mahimahi": Color(1.0, 0.8, 0.3),
+	"squid": Color(0.85, 0.5, 0.95),
+	"lanternfish": Color(0.7, 0.85, 1.0),
+	"anglerfish": Color(1.0, 0.85, 0.4),
+	"marlin": Color(0.55, 0.7, 1.0),
 }
 
 
