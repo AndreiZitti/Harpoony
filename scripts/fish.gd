@@ -131,6 +131,14 @@ func setup(s: String, start_pos: Vector2, direction_right: bool) -> void:
 			color = Color(0.2, 0.3, 0.55)
 			wave_frequency = 1.0
 			size_class = SIZE_LARGE
+		"whitewhale":
+			base_value = 800
+			hit_radius = 40.0
+			speed = 60.0
+			color = Color(0.92, 0.94, 0.96)
+			wave_frequency = 0.6
+			wave_amplitude = 30.0
+			size_class = SIZE_TROPHY
 		"jellyfish":
 			base_value = 18
 			hit_radius = 16.0
@@ -270,6 +278,10 @@ func _is_inflated() -> bool:
 # Returns true if this fish should deflect the given spear (defense like puffer
 # inflation or triggerfish front-cone). Spears with bypasses_defenses skip the call.
 func deflects_spear(spear: Node2D) -> bool:
+	# Trophy-class fish (e.g. White Whale) bounce anything that doesn't break defenses.
+	# Generic so future trophy species inherit the rule automatically.
+	if size_class == SIZE_TROPHY:
+		return not spear.spear_type_breaks_defenses()
 	if species == "jellyfish":
 		return not spear.spear_type_breaks_defenses()
 	if species == "pufferfish":
@@ -420,6 +432,9 @@ func _draw() -> void:
 		return
 	if species == "jellyfish":
 		_draw_jellyfish()
+		return
+	if species == "whitewhale":
+		_draw_whitewhale()
 		return
 	var body_color = color
 	# Lock facing once speared so external rotation orients the fish
@@ -616,3 +631,66 @@ func _draw_anglerfish() -> void:
 	var mouth_x = half_len * 0.85 * dir
 	draw_line(Vector2(mouth_x - 4 * dir, 2), Vector2(mouth_x, 0), Color(0.6, 0.55, 0.5, 0.7), 1.2)
 	draw_line(Vector2(mouth_x - 4 * dir, -2), Vector2(mouth_x, 0), Color(0.6, 0.55, 0.5, 0.7), 1.2)
+
+
+func _draw_whitewhale() -> void:
+	# Massive pale silhouette: elongated body, dorsal fin, broad tail flare.
+	# Strict typing because Godot 4.6 sometimes balks at inferred Vector2/float in draw helpers.
+	var dir: float = forward_sign if not speared else 1.0
+	var body_len: float = hit_radius * 3.0
+	var body_h: float = hit_radius * 1.0
+	var half_len: float = body_len * 0.5
+	var bend: float = sin(age * wave_frequency + wave_phase)
+	var bend_amp: float = body_h * 0.18
+	# Body: elongated ellipse with subtle tail flex.
+	var pts: PackedVector2Array = PackedVector2Array()
+	var n: int = 22
+	for i in n:
+		var a: float = float(i) / float(n) * TAU
+		var x: float = cos(a) * half_len
+		var y: float = sin(a) * body_h * 0.5
+		var tail_factor: float = clampf(-dir * x / half_len, 0.0, 1.0)
+		y += bend * bend_amp * tail_factor
+		pts.append(Vector2(x, y))
+	draw_colored_polygon(pts, color)
+	# Belly shading — slightly darker band on the lower half for depth.
+	var belly_pts: PackedVector2Array = PackedVector2Array()
+	for i in n:
+		var a2: float = float(i) / float(n) * PI  # 0..PI lower half
+		var x2: float = cos(a2) * half_len * 0.95
+		var y2: float = sin(a2) * body_h * 0.45
+		belly_pts.append(Vector2(x2, y2))
+	draw_colored_polygon(belly_pts, color.darkened(0.18))
+	# Dorsal fin — small triangle near mid-back.
+	var fin_x: float = -half_len * 0.1 * dir
+	var fin_w: float = body_h * 0.3
+	draw_polygon(
+		PackedVector2Array([
+			Vector2(fin_x, -body_h * 0.5),
+			Vector2(fin_x - fin_w * dir, -body_h * 0.85),
+			Vector2(fin_x + fin_w * dir, -body_h * 0.55),
+		]),
+		PackedColorArray([color.darkened(0.25)])
+	)
+	# Tail fluke — wide horizontal flare at the back.
+	var tx: float = -half_len * dir
+	var fluke_kick: float = bend * 0.35
+	var ca: float = cos(fluke_kick)
+	var sa: float = sin(fluke_kick)
+	var p_top: Vector2 = Vector2(-14.0 * dir, -16.0)
+	var p_bot: Vector2 = Vector2(-14.0 * dir, 16.0)
+	var p_mid: Vector2 = Vector2(-4.0 * dir, 0.0)
+	p_top = Vector2(p_top.x * ca - p_top.y * sa, p_top.x * sa + p_top.y * ca)
+	p_bot = Vector2(p_bot.x * ca - p_bot.y * sa, p_bot.x * sa + p_bot.y * ca)
+	p_mid = Vector2(p_mid.x * ca - p_mid.y * sa, p_mid.x * sa + p_mid.y * ca)
+	draw_polygon(
+		PackedVector2Array([
+			Vector2(tx, 0) + p_mid,
+			Vector2(tx, 0) + p_top,
+			Vector2(tx - 4.0 * dir, 0),
+			Vector2(tx, 0) + p_bot,
+		]),
+		PackedColorArray([color.darkened(0.22)])
+	)
+	# Eye — small dark dot near the head.
+	draw_circle(Vector2(half_len * 0.7 * dir, -body_h * 0.18), 2.2, Color.BLACK)

@@ -21,10 +21,12 @@ signal zone_unlocked(idx: int)
 signal spear_type_unlocked(id: StringName)
 signal spear_upgrade_changed(id: StringName, key: String, level: int)
 signal bag_loadout_changed
+signal whitewhale_caught_signal
 
 # Persistent state
 var cash: float = 0.0
 var cheat_mode: bool = false
+var whitewhale_caught: bool = false
 var zones: Array[ZoneConfig] = []
 var selected_zone_index: int = 0
 var unlocked_zone_index: int = 0  # highest unlocked index (0..zones.size()-1)
@@ -187,6 +189,14 @@ func get_next_zone_cost() -> int:
 # Resolve a hit's final cash value. Returned shape kept for caller compatibility.
 func register_hit(base_value: int) -> Dictionary:
 	return {"value": base_value, "crit": false, "streak": 0}
+
+
+# Trophy hook — fired from Spear once the trophy fish is actually landed (post-defense).
+# First catch sets the persistent flag and emits the campaign-win signal.
+func note_trophy_caught(species: StringName) -> void:
+	if species == &"whitewhale" and not whitewhale_caught:
+		whitewhale_caught = true
+		whitewhale_caught_signal.emit()
 
 
 # Kept as a no-op for caller compatibility — nothing currently depends on misses.

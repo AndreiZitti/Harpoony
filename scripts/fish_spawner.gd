@@ -48,6 +48,11 @@ func _spawn_at_random_edge(species: String) -> void:
 
 
 func _spawn_species(species: String, pos: Vector2, direction_right: bool) -> void:
+	# Trophy cap — only one White Whale on screen at a time.
+	if species == "whitewhale":
+		for n in get_tree().get_nodes_in_group("fish"):
+			if n is Fish and (n as Fish).species == "whitewhale" and not (n as Fish).speared:
+				return  # cap reached, skip this spawn
 	# Schooling species: tight clusters built via FishSchool. Sizes per species.
 	var school_count := 0
 	match species:

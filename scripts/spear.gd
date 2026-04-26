@@ -142,6 +142,9 @@ func _pierce_through(fish: Fish) -> void:
 	var result := GameData.register_hit(base)
 	var arrive_pos := fish.global_position
 	var species := fish.species
+	# Trophy hook — emits whitewhale_caught_signal on first catch (consumed by ending screen).
+	if fish.size_class == Fish.SIZE_TROPHY:
+		GameData.note_trophy_caught(StringName(species))
 	GameData.add_dive_cash(result["value"])
 	var hud = get_tree().current_scene.get_node_or_null("HUD")
 	if hud and hud.has_method("spawn_cash_popup"):
@@ -326,6 +329,9 @@ func _award_fish(fish: Fish) -> void:
 	var result := GameData.register_hit(base)
 	var arrive_pos := fish.global_position
 	var species := fish.species
+	# Trophy hook — emits whitewhale_caught_signal on first catch (consumed by ending screen).
+	if fish.size_class == Fish.SIZE_TROPHY:
+		GameData.note_trophy_caught(StringName(species))
 	GameData.add_dive_cash(result["value"])
 	GameData.note_fish_caught()
 	Sfx.cash(result["value"])
