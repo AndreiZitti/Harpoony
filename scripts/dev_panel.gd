@@ -141,7 +141,7 @@ func _build_ui() -> void:
 	v.add_child(_tab_container)
 
 	_build_presets_tab()
-	_build_placeholder_tab("Spears", "Phase 2 — sliders for all spear base stats. Coming soon.")
+	_build_spears_tab()
 	_build_placeholder_tab("Fish", "Phase 3 — sliders for fish base values, speed, hit radius. Coming soon.")
 	_build_placeholder_tab("Costs", "Phase 4 — edit upgrade cost ladders. Coming soon.")
 	_build_game_tab()
@@ -265,6 +265,182 @@ func _build_spawn_tab() -> void:
 	row.add_child(whale_btn)
 
 
+func _build_spears_tab() -> void:
+	# Per-spear sub-tabs: live sliders/spinboxes/checks for every base stat,
+	# plus per-upgrade-key level spinners. Stats apply LIVE — no apply button.
+	var page := _make_tab_page("Spears")
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(v)
+
+	var blurb := Label.new()
+	blurb.text = "Live-tune each spear's base stats and upgrade levels. Changes apply instantly."
+	blurb.add_theme_color_override("font_color", Color(0.75, 0.8, 0.92))
+	v.add_child(blurb)
+
+	var sub_tabs := TabContainer.new()
+	sub_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sub_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sub_tabs)
+
+	for t in GameData.spear_types:
+		var sub_page := MarginContainer.new()
+		sub_page.name = t.display_name if t.display_name != "" else String(t.id)
+		sub_page.add_theme_constant_override("margin_left", 6)
+		sub_page.add_theme_constant_override("margin_right", 6)
+		sub_page.add_theme_constant_override("margin_top", 6)
+		sub_page.add_theme_constant_override("margin_bottom", 6)
+		sub_tabs.add_child(sub_page)
+		sub_page.add_child(_build_spear_subtab(t.id))
+
+
+func _build_spear_subtab(spear_id: StringName) -> Control:
+	var t: SpearType = null
+	for s in GameData.spear_types:
+		if s.id == spear_id:
+			t = s
+			break
+	if t == null:
+		return Control.new()
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(v)
+
+	# --- Header: name + reset-to-disk button
+	var hdr := HBoxContainer.new()
+	hdr.add_theme_constant_override("separation", 8)
+	v.add_child(hdr)
+	var name_lbl := Label.new()
+	name_lbl.text = t.display_name if t.display_name != "" else String(t.id)
+	name_lbl.add_theme_font_size_override("font_size", 16)
+	name_lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+	hdr.add_child(name_lbl)
+	var spc := Control.new()
+	spc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr.add_child(spc)
+	var reset_btn := Button.new()
+	reset_btn.text = "Reset to .tres"
+	reset_btn.pressed.connect(func(): _reset_spear_to_disk(spear_id))
+	hdr.add_child(reset_btn)
+
+	# --- Base stats
+	v.add_child(_section_label("Base Stats"))
+	_add_slider_row(v, "speed_mult", 0.3, 3.0, 0.05,
+		func(): return t.speed_mult,
+		func(val): t.speed_mult = val)
+	_add_slider_row(v, "reel_speed_mult", 0.3, 3.0, 0.05,
+		func(): return t.reel_speed_mult,
+		func(val): t.reel_speed_mult = val)
+	_add_slider_row(v, "hit_radius_bonus", -10.0, 50.0, 1.0,
+		func(): return t.hit_radius_bonus,
+		func(val): t.hit_radius_bonus = val)
+	_add_slider_row(v, "value_bonus", 0.5, 5.0, 0.05,
+		func(): return t.value_bonus,
+		func(val): t.value_bonus = val)
+	_add_spin_row(v, "pierce_count", 1, 6, 1, t.pierce_count,
+		func(val): t.pierce_count = int(val))
+	_add_slider_row(v, "net_radius", 0.0, 200.0, 5.0,
+		func(): return t.net_radius,
+		func(val): t.net_radius = val)
+	_add_spin_row(v, "net_max_catch", 1, 15, 1, t.net_max_catch,
+		func(val): t.net_max_catch = int(val))
+	_add_slider_row(v, "crit_chance", 0.0, 1.0, 0.01,
+		func(): return t.crit_chance,
+		func(val): t.crit_chance = val)
+
+	# --- Toggles (binary flags, some stored as int 0/1)
+	v.add_child(_section_label("Flags"))
+	_add_check_row(v, "catches_medium",
+		t.catches_medium == 1,
+		func(on): t.catches_medium = 1 if on else 0)
+	_add_check_row(v, "bypasses_defenses",
+		t.bypasses_defenses,
+		func(on): t.bypasses_defenses = on)
+	_add_check_row(v, "twin_shot",
+		t.twin_shot == 1,
+		func(on): t.twin_shot = 1 if on else 0)
+	_add_check_row(v, "perfect_strike",
+		t.perfect_strike == 1,
+		func(on): t.perfect_strike = 1 if on else 0)
+	_add_check_row(v, "sonic_boom",
+		t.sonic_boom == 1,
+		func(on): t.sonic_boom = 1 if on else 0)
+	_add_check_row(v, "lure_net",
+		t.lure_net == 1,
+		func(on): t.lure_net = 1 if on else 0)
+
+	# --- Upgrade levels (current level for each key)
+	v.add_child(_section_label("Upgrade Levels"))
+	if t.upgrades.is_empty():
+		var none_lbl := Label.new()
+		none_lbl.text = "(no upgrades defined)"
+		none_lbl.add_theme_color_override("font_color", Color(0.6, 0.65, 0.78))
+		v.add_child(none_lbl)
+	else:
+		for key in t.upgrades.keys():
+			var def: Dictionary = t.upgrades[key]
+			var max_lv: int = int(def.get("max_level", 1))
+			var name_text: String = String(def.get("name", str(key)))
+			var label_text: String = "%s [%s] (max %d)" % [name_text, str(key), max_lv]
+			var current: int = GameData.get_spear_upgrade_level(spear_id, String(key))
+			var key_str: String = String(key)
+			var sid: StringName = spear_id
+			_add_spin_row(v, label_text, 0, max_lv, 1, current,
+				func(val):
+					if not GameData.spear_upgrade_levels.has(sid):
+						GameData.spear_upgrade_levels[sid] = {}
+					GameData.spear_upgrade_levels[sid][key_str] = int(val)
+					GameData.spear_upgrade_changed.emit(sid, key_str, int(val)))
+
+	return scroll
+
+
+func _reset_spear_to_disk(spear_id: StringName) -> void:
+	# Re-load the SpearType from its .tres and copy tunable fields back onto the
+	# live instance. Upgrade dict (cost ladder) is intentionally untouched —
+	# that's Phase 4's job.
+	var path := "res://data/spears/%s.tres" % str(spear_id)
+	var fresh: SpearType = load(path)
+	if fresh == null:
+		return
+	var live: SpearType = null
+	for s in GameData.spear_types:
+		if s.id == spear_id:
+			live = s
+			break
+	if live == null:
+		return
+	var fields: Array[StringName] = [
+		&"speed_mult", &"reel_speed_mult", &"hit_radius_bonus",
+		&"value_bonus", &"pierce_count", &"net_radius",
+		&"net_max_catch", &"crit_chance", &"catches_medium",
+		&"bypasses_defenses", &"twin_shot", &"perfect_strike",
+		&"sonic_boom", &"lure_net",
+	]
+	for prop in fields:
+		live.set(prop, fresh.get(prop))
+	# Easiest way to refresh visible slider values: close + reopen the panel.
+	# (Re-builds the whole UI tree, picking up the new values.)
+	if is_open():
+		close()
+		toggle()
+
+
+func _section_label(text: String) -> Label:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.add_theme_color_override("font_color", Color(0.85, 0.78, 0.45))
+	return lbl
+
+
 func _build_placeholder_tab(label: String, message: String) -> void:
 	var page := _make_tab_page(label)
 	var v := VBoxContainer.new()
@@ -315,6 +491,42 @@ func _add_spin_row(parent: Node, label_text: String, min_v: float, max_v: float,
 	spin.value_changed.connect(on_change)
 	row.add_child(spin)
 	return spin
+
+
+func _add_slider_row(parent: Node, label_text: String, lo: float, hi: float,
+		step: float, getter: Callable, setter: Callable) -> HSlider:
+	# Slider + live numeric readout. Getter is called once to seed the value;
+	# setter is called on every drag tick so changes apply LIVE.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+
+	var lbl := Label.new()
+	lbl.text = label_text
+	lbl.custom_minimum_size = Vector2(180, 0)
+	lbl.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	row.add_child(lbl)
+
+	var slider := HSlider.new()
+	slider.min_value = lo
+	slider.max_value = hi
+	slider.step = step
+	slider.value = float(getter.call())
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.custom_minimum_size = Vector2(220, 0)
+	row.add_child(slider)
+
+	var val_lbl := Label.new()
+	val_lbl.text = "%.2f" % slider.value
+	val_lbl.custom_minimum_size = Vector2(60, 0)
+	val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	val_lbl.add_theme_color_override("font_color", Color(0.95, 0.92, 0.6))
+	row.add_child(val_lbl)
+
+	slider.value_changed.connect(func(v: float):
+		setter.call(v)
+		val_lbl.text = "%.2f" % v)
+	return slider
 
 
 func _add_check_row(parent: Node, label_text: String, initial: bool,
