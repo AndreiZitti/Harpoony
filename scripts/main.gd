@@ -8,8 +8,10 @@ extends Node2D
 
 const BubbleFieldScript = preload("res://scripts/bubble_field.gd")
 const GameMenuScript = preload("res://scripts/game_menu.gd")
+const EndingScreenScript = preload("res://scripts/ending_screen.gd")
 var _bubble_field: Node2D = null
 var _game_menu: CanvasLayer = null
+var _ending_screen: CanvasLayer = null
 
 const DIVE_TRAVEL_DURATION = 1.5
 const RESURFACE_TRAVEL_DURATION = 1.0
@@ -43,6 +45,15 @@ func _ready() -> void:
 	_game_menu.set_dev_spawn_callable(_dev_spawn)
 	_game_menu.session_reset_requested.connect(_on_session_reset)
 
+	# Ending screen — celebration overlay on the first White Whale catch.
+	_ending_screen = CanvasLayer.new()
+	_ending_screen.set_script(EndingScreenScript)
+	_ending_screen.name = "EndingScreen"
+	add_child(_ending_screen)
+	_ending_screen.reset_requested.connect(_on_session_reset)
+
+	GameData.whitewhale_caught_signal.connect(_on_whitewhale_caught)
+
 
 func _dev_spawn(species: String) -> void:
 	if fish_spawner.has_method("dev_spawn"):
@@ -74,6 +85,13 @@ func _on_session_reset() -> void:
 			diver.set_visible_in_water(false)
 		GameData.set_dive_state(GameData.DiveState.SURFACE)
 	upgrade_shop.show_shop()
+
+
+func _on_whitewhale_caught() -> void:
+	# Let the cash popup play before the ending lands.
+	await get_tree().create_timer(1.5).timeout
+	if _ending_screen and _ending_screen.has_method("show_ending"):
+		_ending_screen.show_ending()
 
 
 func _process(delta: float) -> void:
