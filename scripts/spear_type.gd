@@ -17,6 +17,7 @@ extends Resource
 @export_range(0.0, 32.0, 1.0) var hit_radius_bonus: float = 0.0
 @export_range(0.5, 3.0, 0.05) var value_bonus: float = 1.0
 @export var bypasses_defenses: bool = false  # if true, fish.deflects_spear is ignored
+@export var twin_shot: int = 0  # if > 0, fire an additional spear per click (TODO wiring in diver._try_fire)
 
 @export_group("Behavior — Pierce")
 @export_range(1, 10, 1) var pierce_count: int = 1

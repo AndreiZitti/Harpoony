@@ -101,6 +101,7 @@ func _try_fire() -> void:
 		# Pull failed (e.g. queue empty mid-dive) — clean up.
 		spear.queue_free()
 		return
+	# TODO: if drawn type's twin_shot > 0, fire a second spear at aim_angle ± small offset.
 	active_spears.append(spear)
 	# Auto-prune when the spear frees itself on arrival.
 	spear.tree_exited.connect(_on_spear_freed.bind(spear))
