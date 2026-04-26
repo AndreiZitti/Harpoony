@@ -21,6 +21,9 @@ extends Resource
 
 @export_group("Behavior — Pierce")
 @export_range(1, 10, 1) var pierce_count: int = 1
+@export_range(0.0, 1.0, 0.05) var crit_chance: float = 0.0      # 0.0–1.0; Sharp Tip raises this
+@export var perfect_strike: int = 0       # 1 = direct-center hits always crit at 3x
+@export var sonic_boom: int = 0           # 1 = TODO impact stuns nearby fish
 
 @export_group("Behavior — Net")
 @export_range(0.0, 200.0, 1.0) var net_radius: float = 0.0

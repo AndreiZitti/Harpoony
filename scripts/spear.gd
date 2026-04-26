@@ -133,6 +133,8 @@ func _effective_reel_speed() -> float:
 func _pierce_through(fish: Fish) -> void:
 	fish.on_speared(self)
 	var base := fish.get_cash_value()
+	base = int(round(base * _crit_multiplier(fish)))
+	# TODO: if get_effective_spear_stat(current_type_id, "sonic_boom") >= 1, stun nearby fish for ~0.6s.
 	var result := GameData.register_hit(base)
 	var arrive_pos := fish.global_position
 	var species := fish.species
@@ -314,6 +316,9 @@ func _award_fish(fish: Fish) -> void:
 	if current_type:
 		bonus = GameData.get_effective_spear_stat(current_type_id, "value_bonus")
 	base = int(round(base * bonus))
+	# Heavy crit branch: Sharp Tip rolls a chance for 2x; Perfect Strike auto-3x on dead-center.
+	# TODO: if get_effective_spear_stat(current_type_id, "sonic_boom") >= 1, stun nearby fish for ~0.6s on impact.
+	base = int(round(base * _crit_multiplier(fish)))
 	var result := GameData.register_hit(base)
 	var arrive_pos := fish.global_position
 	var species := fish.species
@@ -472,3 +477,25 @@ func _draw_net_spear() -> void:
 			var a := float(i) / 8.0 * TAU
 			var p := Vector2(cos(a), sin(a)) * r
 			draw_line(Vector2(tip_x, 0), Vector2(tip_x, 0) + p, Color(tip_color.r, tip_color.g, tip_color.b, 0.12), 1.0)
+
+
+func _crit_multiplier(fish: Node2D) -> float:
+	# Heavy-only Crit branch: Perfect Strike (auto-3x on dead-center) takes precedence
+	# over Sharp Tip's probabilistic 2x. Both upgrades read via get_effective_spear_stat
+	# so future stacking sources Just Work.
+	if current_type_id == &"":
+		return 1.0
+	var perfect_strike_eff: int = int(GameData.get_effective_spear_stat(current_type_id, "perfect_strike"))
+	if perfect_strike_eff >= 1 and _is_dead_center_hit(fish):
+		return 3.0
+	var crit_chance_eff: float = GameData.get_effective_spear_stat(current_type_id, "crit_chance")
+	if crit_chance_eff > 0.0 and randf() < crit_chance_eff:
+		return 2.0
+	return 1.0
+
+
+func _is_dead_center_hit(fish: Node2D) -> bool:
+	if fish == null or not is_instance_valid(fish):
+		return false
+	var d := global_position.distance_to(fish.global_position)
+	return d <= fish.hit_radius * 0.25

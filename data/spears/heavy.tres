@@ -20,39 +20,48 @@ net_max_catch = 1
 bypasses_defenses = true
 upgrades = {
 "speed_mult": {
-	"name": "Counterweight",
-	"description": "+10% travel speed.",
+	"name": "Reinforced Shaft",
+	"description": "+15% travel speed (baseline).",
 	"icon": "➤",
-	"max_level": 4,
-	"costs": [60, 180, 500, 1400],
+	"max_level": 1,
+	"costs": [200],
 	"field": "speed_mult",
-	"step": 0.1
-},
-"reel_speed_mult": {
-	"name": "Reinforced Line",
-	"description": "+10% reel-in speed.",
-	"icon": "≣",
-	"max_level": 4,
-	"costs": [70, 210, 600, 1500],
-	"field": "reel_speed_mult",
-	"step": 0.1
-},
-"value_bonus": {
-	"name": "Trophy Tip",
-	"description": "+15% cash on hits.",
-	"icon": "✱",
-	"max_level": 3,
-	"costs": [200, 600, 1500],
-	"field": "value_bonus",
 	"step": 0.15
+},
+"sharp_tip": {
+	"name": "Sharp Tip",
+	"description": "Crit branch — 25% chance for 2x cash on hit.",
+	"icon": "◆",
+	"max_level": 1,
+	"costs": [500],
+	"field": "crit_chance",
+	"step": 0.25
+},
+"perfect_strike": {
+	"name": "Perfect Strike",
+	"description": "Crit branch — direct-center hits crit at 3x.",
+	"icon": "★",
+	"max_level": 1,
+	"costs": [1200],
+	"field": "perfect_strike",
+	"step": 1
 },
 "pierce_count": {
 	"name": "Drill Tip",
-	"description": "+1 fish pierced per shot. Plows through stacked targets.",
+	"description": "Penetrate branch — pierces up to 3 fish in a line.",
 	"icon": "✦",
-	"max_level": 2,
-	"costs": [400, 1200],
+	"max_level": 1,
+	"costs": [600],
 	"field": "pierce_count",
+	"step": 2
+},
+"sonic_boom": {
+	"name": "Sonic Boom",
+	"description": "Penetrate branch — impact stuns nearby fish briefly.",
+	"icon": "◊",
+	"max_level": 1,
+	"costs": [1100],
+	"field": "sonic_boom",
 	"step": 1
 }
 }
