@@ -18,6 +18,14 @@ const MIN_ZONE_FOR_SPEAR := {
 	&"heavy": 2,
 }
 
+# Projectile sprite preview at the top of each spear card. Pixel-art is rendered
+# with NEAREST filtering and stretched to fit the card width as a banner.
+const SPEAR_SPRITE_PATHS := {
+	&"normal": "res://assets/spears/normal.png",
+	&"net": "res://assets/spears/net.png",
+	&"heavy": "res://assets/spears/heavy.png",
+}
+
 var root_control: Control
 
 var cash_label: Label
@@ -346,6 +354,20 @@ func _build_spear_card(t: SpearType) -> Dictionary:
 	vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 6)
 	card.add_child(vbox)
+
+	# Banner-style projectile preview across the top of the card. Shows even when
+	# the spear is locked so players see what they're saving up for. NEAREST
+	# filtering keeps the pixel-art crisp at any scale.
+	var sprite_path: String = SPEAR_SPRITE_PATHS.get(t.id, "")
+	if sprite_path != "":
+		var preview := TextureRect.new()
+		preview.texture = load(sprite_path)
+		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		preview.custom_minimum_size = Vector2(0, 56)
+		preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		vbox.add_child(preview)
 
 	var header = HBoxContainer.new()
 	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
