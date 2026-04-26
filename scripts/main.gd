@@ -11,6 +11,8 @@ const GameMenuScript = preload("res://scripts/game_menu.gd")
 const EndingScreenScript = preload("res://scripts/ending_screen.gd")
 const MainMenuScript = preload("res://scripts/main_menu.gd")
 const SplashScript = preload("res://scripts/splash_screen.gd")
+const BoatTexture = preload("res://assets/boat/boat.png")
+const BOAT_DRAW_WIDTH = 240.0  # screen width — bumped from 180 for the new asset
 var _bubble_field: Node2D = null
 var _game_menu: CanvasLayer = null
 var _ending_screen: CanvasLayer = null
@@ -24,6 +26,7 @@ var _hit_stop_active: bool = false
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.04, 0.08, 0.14))
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 	upgrade_shop.next_dive_pressed.connect(_on_dive_pressed)
 	oxygen_timer.timeout.connect(_on_oxygen_tick)
@@ -300,32 +303,17 @@ func _draw() -> void:
 
 		draw_line(Vector2(0, water_surface_y), Vector2(viewport.x, water_surface_y), Color(0.6, 0.8, 1.0, 0.4), 1.5)
 
-	# Boat silhouette (surface / transitioning only)
+	# Boat (surface / transitioning only). Sprite replaces the old polygon —
+	# zone selection now lives in the upgrade shop, so the procedural depth
+	# lever previously drawn on the deck is gone.
 	if GameData.dive_state != GameData.DiveState.UNDERWATER:
-		var boat_x = viewport.x * 0.5
-		var boat_y = water_surface_y
-		var boat_w = 180.0
-		draw_polygon(
-			PackedVector2Array([
-				Vector2(boat_x - boat_w * 0.5, boat_y),
-				Vector2(boat_x - boat_w * 0.3, boat_y - 25),
-				Vector2(boat_x + boat_w * 0.3, boat_y - 25),
-				Vector2(boat_x + boat_w * 0.5, boat_y),
-			]),
-			PackedColorArray([Color(0.2, 0.15, 0.12)])
-		)
-		draw_line(Vector2(boat_x, boat_y - 25), Vector2(boat_x, boat_y - 90), Color(0.3, 0.25, 0.2), 3.0)
-
-		# Depth lever silhouette on the deck
-		if not GameData.zones.is_empty():
-			var lever_x = boat_x + boat_w * 0.18
-			var deck_y = boat_y - 25.0
-			draw_rect(Rect2(lever_x - 8, deck_y - 4, 16, 4), Color(0.45, 0.35, 0.2))
-			var n = max(1, GameData.zones.size())
-			var lt = float(GameData.selected_zone_index) / float(max(1, n - 1))
-			var ang = lerpf(-PI * 0.35, PI * 0.35, lt)
-			var llen = 18.0
-			var base = Vector2(lever_x, deck_y - 4)
-			var tip = base + Vector2(sin(ang) * llen, -cos(ang) * llen)
-			draw_line(base, tip, Color(0.85, 0.7, 0.3), 3.0)
-			draw_circle(tip, 3.0, Color(1.0, 0.9, 0.4))
+		var boat_x: float = viewport.x * 0.5
+		var boat_y: float = water_surface_y
+		var tex_size := BoatTexture.get_size()
+		var aspect: float = tex_size.y / tex_size.x
+		var draw_w: float = BOAT_DRAW_WIDTH
+		var draw_h: float = draw_w * aspect
+		# Anchor so the hull bottom kisses the waterline (small +offset for the
+		# tiny reflection rim on the asset).
+		var rect := Rect2(boat_x - draw_w * 0.5, boat_y - draw_h + 8, draw_w, draw_h)
+		draw_texture_rect(BoatTexture, rect, false)

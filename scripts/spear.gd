@@ -2,6 +2,10 @@ class_name Spear
 extends Area2D
 
 const HitBurstScene = preload("res://scenes/hit_burst.tscn")
+const NormalSpearTexture = preload("res://assets/spears/normal.png")
+const NetSpearTexture = preload("res://assets/spears/net.png")
+const HeavySpearTexture = preload("res://assets/spears/heavy.png")
+const SPEAR_DRAW_LENGTH = 64.0  # screen length — tweak if too big/small in playtest
 
 @onready var _shape: CollisionShape2D = $CollisionShape2D
 
@@ -25,6 +29,7 @@ const MAX_FLIGHT_DISTANCE = 600.0
 
 
 func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	area_entered.connect(_on_area_entered)
 	# Type is pulled at fire time so the bag stays a discrete round — see throw_in_direction.
 	_clear_type()
@@ -401,92 +406,39 @@ func _draw() -> void:
 		if reel_vec.length() > 0.001:
 			angle = reel_vec.angle() + PI
 	draw_set_transform(Vector2.ZERO, angle, Vector2.ONE)
-	# Per-type silhouette so each spear reads at a glance.
+	# Pixel-art silhouette per spear type — texture rect anchored centered for
+	# now so the asset extends evenly fore/aft of the pivot. If rotation reads
+	# poorly in playtest, shift the rect's x offset to weight the pivot toward
+	# the back of the spear.
+	var tex: Texture2D = null
 	match current_type_id:
 		&"net":
-			_draw_net_spear()
+			tex = NetSpearTexture
 		&"heavy":
-			_draw_heavy_spear()
+			tex = HeavySpearTexture
+		&"normal":
+			tex = NormalSpearTexture
 		_:
-			_draw_normal_spear()
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-
-func _draw_normal_spear() -> void:
-	# Slim, cream-colored — quick & precise.
-	var length = 22.0
-	var width = 3.0
-	var shaft_color = current_type.color.darkened(0.15) if current_type else Color(0.8, 0.8, 0.85)
-	var tip_color = current_type.color if current_type else Color(0.95, 0.9, 0.6)
-	draw_rect(Rect2(-length / 2, -width / 2, length, width), shaft_color)
-	# Sharp, narrow arrowhead.
-	var tip = length / 2
-	draw_polygon(
-		PackedVector2Array([Vector2(tip + 3, 0), Vector2(tip - 5, -4), Vector2(tip - 5, 4)]),
-		PackedColorArray([tip_color])
-	)
-	# Fletching — small back fins.
-	var back = -length / 2
-	draw_polygon(
-		PackedVector2Array([Vector2(back, 0), Vector2(back + 5, -3), Vector2(back + 5, 3)]),
-		PackedColorArray([shaft_color.lightened(0.1)])
-	)
-
-
-func _draw_heavy_spear() -> void:
-	# Thick, dark shaft with a chunky head — reads as "weight".
-	var length = 28.0
-	var width = 6.0
-	var shaft_color = current_type.color.darkened(0.4) if current_type else Color(0.4, 0.3, 0.2)
-	var tip_color = current_type.color if current_type else Color(0.85, 0.65, 0.45)
-	# Shaft with two darker stripes for grip texture.
-	draw_rect(Rect2(-length / 2, -width / 2, length, width), shaft_color)
-	draw_line(Vector2(-length / 2 + 3, -width / 2 + 1), Vector2(length / 2 - 8, -width / 2 + 1), shaft_color.darkened(0.3), 1.0)
-	draw_line(Vector2(-length / 2 + 3, width / 2 - 1), Vector2(length / 2 - 8, width / 2 - 1), shaft_color.darkened(0.3), 1.0)
-	# Heavy bladed head — wider triangular plate.
-	var tip_x = length / 2 + 4
-	var head_back = length / 2 - 8
-	draw_polygon(
-		PackedVector2Array([
-			Vector2(tip_x, 0),
-			Vector2(head_back, -7),
-			Vector2(head_back + 3, 0),
-			Vector2(head_back, 7),
-		]),
-		PackedColorArray([tip_color])
-	)
-	# Center ridge highlight.
-	draw_line(Vector2(head_back, 0), Vector2(tip_x, 0), tip_color.lightened(0.3), 1.2)
-
-
-func _draw_net_spear() -> void:
-	# Compact bolt with a translucent hoop hauling the net.
-	var length = 18.0
-	var width = 4.0
-	var shaft_color = current_type.color.darkened(0.2) if current_type else Color(0.4, 0.7, 0.85)
-	var tip_color = current_type.color if current_type else Color(0.5, 0.85, 1.0)
-	draw_rect(Rect2(-length / 2, -width / 2, length, width), shaft_color)
-	# Knot/anchor at the back where the net trails from.
-	draw_circle(Vector2(-length / 2, 0), 3, shaft_color.lightened(0.15))
-	# Wider, blunter head — net launcher, not piercer.
-	var tip_x = length / 2
-	draw_polygon(
-		PackedVector2Array([
-			Vector2(tip_x + 2, 0),
-			Vector2(tip_x - 3, -5),
-			Vector2(tip_x - 3, 5),
-		]),
-		PackedColorArray([tip_color])
-	)
-	# Net hoop preview during flight, scaled to current radius upgrade.
-	if state == State.FLYING:
+			tex = null
+	if tex != null:
+		var tex_size := tex.get_size()
+		var aspect: float = tex_size.y / tex_size.x
+		var draw_w: float = SPEAR_DRAW_LENGTH
+		var draw_h: float = draw_w * aspect
+		var rect := Rect2(-draw_w * 0.5, -draw_h * 0.5, draw_w, draw_h)
+		draw_texture_rect(tex, rect, false)
+	# Net AoE preview during flight — keep the procedural hoop overlay so the
+	# upgrade-driven net_radius is still legible at a glance.
+	if current_type_id == &"net" and state == State.FLYING:
+		var hoop_color := current_type.color if current_type else Color(0.5, 0.85, 1.0)
 		var r: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
-		draw_arc(Vector2(tip_x, 0), r, 0.0, TAU, 32, Color(tip_color.r, tip_color.g, tip_color.b, 0.25), 1.5)
-		# Mesh hint — radial spokes.
+		var hoop_center := Vector2(SPEAR_DRAW_LENGTH * 0.5, 0.0)
+		draw_arc(hoop_center, r, 0.0, TAU, 32, Color(hoop_color.r, hoop_color.g, hoop_color.b, 0.25), 1.5)
 		for i in 8:
 			var a := float(i) / 8.0 * TAU
 			var p := Vector2(cos(a), sin(a)) * r
-			draw_line(Vector2(tip_x, 0), Vector2(tip_x, 0) + p, Color(tip_color.r, tip_color.g, tip_color.b, 0.12), 1.0)
+			draw_line(hoop_center, hoop_center + p, Color(hoop_color.r, hoop_color.g, hoop_color.b, 0.12), 1.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _crit_multiplier(fish: Node2D) -> float:
