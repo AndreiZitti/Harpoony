@@ -1,6 +1,8 @@
 extends Node2D
 
 const SpearScene = preload("res://scenes/spear.tscn")
+const DiverTexture = preload("res://assets/diver/diver_east.png")
+const DIVER_SCALE = 0.4  # 124px source → ~50px on screen, fits inside the aim ring
 
 # Spears are instantiated per fire and self-cleanup on arrival. We just track
 # active ones so we can recall them when the dive ends.
@@ -16,6 +18,8 @@ const AIM_ANGULAR_SPEED = PI  # 1 rotation per 2 sec
 
 
 func _ready() -> void:
+	# Pixel-art sprite — disable bilinear filtering so the source pixels stay crisp.
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var viewport = get_viewport_rect().size
 	surface_y = 100.0
 	underwater_y = get_target_depth_y()
@@ -114,9 +118,11 @@ func _on_spear_freed(spear: Node) -> void:
 func _draw() -> void:
 	if not visible:
 		return
-	draw_circle(Vector2(0, -12), 10, Color(0.9, 0.85, 0.6))   # head
-	draw_rect(Rect2(-8, -2, 16, 24), Color(0.2, 0.3, 0.5))    # body
-	draw_circle(Vector2(-4, -12), 3, Color(0.2, 0.6, 1.0, 0.6))  # mask
+	# Diver sprite — single static face. We can't rotate to aim direction
+	# because the asset only has 8 fixed views and the animation set is incomplete.
+	var tex_size := DiverTexture.get_size()
+	var draw_size := tex_size * DIVER_SCALE
+	draw_texture_rect(DiverTexture, Rect2(-draw_size * 0.5, draw_size), false)
 
 	if fishing_enabled:
 		# Aim indicator color shifts with fire-state so the player sees status at a glance.
