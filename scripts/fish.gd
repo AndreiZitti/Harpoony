@@ -4,6 +4,17 @@ extends Area2D
 @onready var _shape: CollisionShape2D = $CollisionShape2D
 
 var species: String = "sardine"
+# Size class drives Net catch eligibility and trophy lane.
+# small  → Net catches by default
+# medium → Net catches only after Bigger Hoop upgrade
+# large  → Net never catches; Heavy can pierce
+# trophy → Net never catches; only Heavy lands them
+const SIZE_SMALL := &"small"
+const SIZE_MEDIUM := &"medium"
+const SIZE_LARGE := &"large"
+const SIZE_TROPHY := &"trophy"
+
+var size_class: StringName = SIZE_MEDIUM
 var base_value: int = 2
 var hit_radius: float = 10.0
 var speed: float = 120.0
@@ -19,13 +30,27 @@ var slot_offset: Vector2 = Vector2.ZERO
 var _offset_jitter_timer: float = 0.0
 var forward_sign: float = 1.0
 # Per-species behavior fields
-var puffer_inflated_until: float = -1.0
+# Pufferfish — predictable inflate cycle.
+enum PufferPhase { DEFLATED, INFLATING, INFLATED, DEFLATING }
+var puffer_phase: int = PufferPhase.DEFLATED
+var puffer_phase_timer: float = 0.0
+const PUFFER_DEFLATED_DURATION := 3.0
+const PUFFER_INFLATING_DURATION := 0.4
+const PUFFER_INFLATED_DURATION := 2.0
+const PUFFER_DEFLATING_DURATION := 0.4
+const PUFFER_THREAT_RADIUS := 80.0
+# Mahimahi
 var mahi_burst_until: float = -1.0
 var mahi_burst_dir: Vector2 = Vector2.ZERO
 var mahi_prev_seen_spear: bool = false
+# Squid
 var squid_phase: int = 0  # 0 = STILL, 1 = BURST
 var squid_phase_timer: float = 0.0
 var spear_check_timer: float = 0.0
+# Triggerfish — directional shield, alarm-on-bounce.
+var trigger_alarm_until: float = -1.0
+const TRIGGER_SHIELD_HALF_ANGLE := deg_to_rad(60.0)  # 120° front cone total
+const TRIGGER_ALARM_DURATION := 1.2
 var _flash_tween: Tween = null
 var _squash_tween: Tween = null
 
@@ -34,35 +59,42 @@ func setup(s: String, start_pos: Vector2, direction_right: bool) -> void:
 	species = s
 	match species:
 		"sardine":
-			base_value = 2
+			base_value = 4
 			hit_radius = 10.0
 			speed = 160.0
 			color = Color(0.75, 0.85, 0.95)
 			wave_frequency = 5.5
+			size_class = SIZE_SMALL
 		"grouper":
-			base_value = 10
+			base_value = 15
 			hit_radius = 18.0
 			speed = 80.0
 			color = Color(0.8, 0.6, 0.3)
 			wave_frequency = 2.8
+			size_class = SIZE_MEDIUM
 		"tuna":
 			base_value = 40
 			hit_radius = 24.0
 			speed = 120.0
 			color = Color(0.4, 0.5, 0.7)
 			wave_frequency = 3.6
+			size_class = SIZE_LARGE
 		"pufferfish":
-			base_value = 8
+			base_value = 12
 			hit_radius = 13.0
 			speed = 50.0
 			color = Color(0.95, 0.9, 0.45)
 			wave_frequency = 1.5
+			puffer_phase = PufferPhase.DEFLATED
+			puffer_phase_timer = randf_range(1.5, PUFFER_DEFLATED_DURATION)  # stagger spawns
+			size_class = SIZE_MEDIUM
 		"mahimahi":
 			base_value = 25
 			hit_radius = 16.0
 			speed = 90.0
 			color = Color(0.95, 0.7, 0.2)
 			wave_frequency = 4.0
+			size_class = SIZE_MEDIUM
 		"squid":
 			base_value = 18
 			hit_radius = 13.0
@@ -70,18 +102,28 @@ func setup(s: String, start_pos: Vector2, direction_right: bool) -> void:
 			color = Color(0.7, 0.35, 0.75)
 			wave_frequency = 1.0
 			squid_phase_timer = randf_range(0.4, 1.6)
+			size_class = SIZE_MEDIUM
 		"lanternfish":
 			base_value = 5
 			hit_radius = 9.0
 			speed = 130.0
 			color = Color(0.4, 0.5, 0.75)
 			wave_frequency = 4.5
+			size_class = SIZE_SMALL
 		"anglerfish":
 			base_value = 50
 			hit_radius = 16.0
 			speed = 30.0
 			color = Color(0.13, 0.08, 0.18)
 			wave_frequency = 0.9
+		"triggerfish":
+			base_value = 30
+			hit_radius = 16.0
+			speed = 70.0
+			color = Color(0.55, 0.65, 0.85)
+			wave_frequency = 1.6
+			wave_amplitude = 8.0
+			size_class = SIZE_LARGE
 		"marlin":
 			base_value = 60
 			hit_radius = 22.0
@@ -122,6 +164,8 @@ func _process_species_movement(delta: float) -> void:
 			_process_mahimahi(delta)
 		"squid":
 			_process_squid(delta)
+		"triggerfish":
+			_process_triggerfish(delta)
 		_:
 			_process_default(delta)
 
@@ -132,20 +176,40 @@ func _process_default(delta: float) -> void:
 
 
 func _process_pufferfish(delta: float) -> void:
-	spear_check_timer -= delta
-	if spear_check_timer <= 0.0:
-		spear_check_timer = 0.05
-		var sp = _find_flying_spear()
-		if sp and global_position.distance_to(sp.global_position) < 80.0:
-			puffer_inflated_until = age + 0.4
-			_update_collision_radius()
-		elif age > puffer_inflated_until and _shape and _shape.shape is CircleShape2D:
-			# Restore deflated radius if expired
-			if absf((_shape.shape as CircleShape2D).radius - get_effective_hit_radius()) > 0.5:
-				_update_collision_radius()
+	# Predictable inflate cycle, with snap-inflation when a spear gets close.
+	puffer_phase_timer -= delta
+	if puffer_phase == PufferPhase.DEFLATED:
+		spear_check_timer -= delta
+		if spear_check_timer <= 0.0:
+			spear_check_timer = 0.05
+			var sp = _find_flying_spear()
+			if sp and global_position.distance_to(sp.global_position) < PUFFER_THREAT_RADIUS:
+				_set_puffer_phase(PufferPhase.INFLATED)  # snap; skip transition
+		if puffer_phase_timer <= 0.0:
+			_set_puffer_phase(PufferPhase.INFLATING)
+	elif puffer_phase == PufferPhase.INFLATING and puffer_phase_timer <= 0.0:
+		_set_puffer_phase(PufferPhase.INFLATED)
+	elif puffer_phase == PufferPhase.INFLATED and puffer_phase_timer <= 0.0:
+		_set_puffer_phase(PufferPhase.DEFLATING)
+	elif puffer_phase == PufferPhase.DEFLATING and puffer_phase_timer <= 0.0:
+		_set_puffer_phase(PufferPhase.DEFLATED)
 	# Slow drift, sluggish
 	var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
 	global_position += velocity * delta * 0.6 + Vector2(0, wave_y)
+
+
+func _set_puffer_phase(phase: int) -> void:
+	puffer_phase = phase
+	match phase:
+		PufferPhase.DEFLATED:
+			puffer_phase_timer = PUFFER_DEFLATED_DURATION
+		PufferPhase.INFLATING:
+			puffer_phase_timer = PUFFER_INFLATING_DURATION
+		PufferPhase.INFLATED:
+			puffer_phase_timer = PUFFER_INFLATED_DURATION
+		PufferPhase.DEFLATING:
+			puffer_phase_timer = PUFFER_DEFLATING_DURATION
+	_update_collision_radius()
 
 
 func _process_mahimahi(delta: float) -> void:
@@ -191,7 +255,50 @@ func _process_squid(delta: float) -> void:
 
 
 func _is_inflated() -> bool:
-	return species == "pufferfish" and age < puffer_inflated_until
+	return species == "pufferfish" and (puffer_phase == PufferPhase.INFLATED or puffer_phase == PufferPhase.INFLATING)
+
+
+# Returns true if this fish should deflect the given spear (defense like puffer
+# inflation or triggerfish front-cone). Spears with bypasses_defenses skip the call.
+func deflects_spear(spear: Node2D) -> bool:
+	if species == "pufferfish":
+		# Only the fully-inflated phase bounces; the inflating transition is just a tell.
+		return puffer_phase == PufferPhase.INFLATED
+	if species == "triggerfish":
+		var facing := Vector2(forward_sign, 0.0)
+		var to_spear := spear.global_position - global_position
+		if to_spear.length_squared() < 0.0001:
+			return false
+		# True if spear approaches inside the front cone (i.e. dot is positive enough).
+		var cos_threshold := cos(TRIGGER_SHIELD_HALF_ANGLE)
+		return facing.dot(to_spear.normalized()) >= cos_threshold
+	return false
+
+
+# Called by Spear after a bounce. Triggerfish flips facing toward threat + alarm.
+func on_bounce(spear: Node2D) -> void:
+	if species == "triggerfish":
+		var to_spear := spear.global_position - global_position
+		if to_spear.x != 0:
+			forward_sign = 1.0 if to_spear.x > 0 else -1.0
+			velocity = Vector2(speed * forward_sign, 0)
+		trigger_alarm_until = age + TRIGGER_ALARM_DURATION
+
+
+func _process_triggerfish(delta: float) -> void:
+	# Edge bounce: turn around when reaching screen margins so it patrols.
+	var viewport = get_viewport_rect().size
+	if global_position.x < 40.0 and forward_sign < 0:
+		forward_sign = 1.0
+		velocity = Vector2(speed * forward_sign, 0)
+	elif global_position.x > viewport.x - 40.0 and forward_sign > 0:
+		forward_sign = -1.0
+		velocity = Vector2(speed * forward_sign, 0)
+	# While alarmed it moves at full speed; otherwise gentle patrol.
+	var s := speed if age < trigger_alarm_until else speed * 0.85
+	velocity = Vector2(s * forward_sign, 0)
+	var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
+	global_position += velocity * delta + Vector2(0, wave_y)
 
 
 func _update_collision_radius() -> void:
@@ -200,13 +307,20 @@ func _update_collision_radius() -> void:
 
 
 func _find_flying_spear() -> Node2D:
-	var diver = get_tree().current_scene.get_node_or_null("Diver")
-	if diver == null:
+	# Spears spawn under the main scene now (not under the diver). Pick the
+	# closest one in flight so puffer/triggerfish detection feels responsive.
+	var scene := get_tree().current_scene
+	if scene == null:
 		return null
-	for child in diver.get_children():
+	var closest: Node2D = null
+	var min_d_sq := INF
+	for child in scene.get_children():
 		if child is Spear and (child as Spear).state == Spear.State.FLYING:
-			return child
-	return null
+			var d := global_position.distance_squared_to(child.global_position)
+			if d < min_d_sq:
+				min_d_sq = d
+				closest = child
+	return closest
 
 
 func _process_schooling(delta: float) -> void:
@@ -276,14 +390,14 @@ func play_hit_feedback() -> void:
 
 func get_cash_value() -> int:
 	var bonus = 1.5 if _is_inflated() else 1.0
-	return int(base_value * GameData.get_fish_value_multiplier() * bonus)
+	return int(base_value * bonus)
 
 
 func get_effective_hit_radius() -> float:
 	var r = hit_radius
 	if _is_inflated():
 		r = 32.0
-	return r + GameData.get_hit_radius_bonus()
+	return r
 
 
 func _draw() -> void:
@@ -293,8 +407,7 @@ func _draw() -> void:
 	if species == "anglerfish":
 		_draw_anglerfish()
 		return
-	var tint = GameData.get_fish_tint()
-	var body_color = color * tint
+	var body_color = color
 	# Lock facing once speared so external rotation orients the fish
 	var facing_right = true if speared else velocity.x >= 0
 	var dir = 1.0 if facing_right else -1.0
@@ -360,11 +473,25 @@ func _draw() -> void:
 		var glow_color = Color(0.55, 0.75, 1.0, 0.35)
 		draw_circle(Vector2.ZERO, hit_radius * 1.6, glow_color)
 		draw_circle(Vector2(half_len * 0.7 * dir, 0), 2.0, Color(0.7, 0.9, 1.0))
+	# Triggerfish shield plate — darker plate on the front half, brighter when alarmed.
+	if species == "triggerfish":
+		var alarmed := age < trigger_alarm_until
+		var plate_color = Color(0.85, 0.9, 1.0) if alarmed else Color(0.35, 0.4, 0.55)
+		var plate_pts = PackedVector2Array()
+		var segs := 12
+		for i in segs + 1:
+			var t := float(i) / segs  # 0..1
+			# Sweep across the front cone (60° each side of facing).
+			var a := lerpf(-TRIGGER_SHIELD_HALF_ANGLE, TRIGGER_SHIELD_HALF_ANGLE, t)
+			var local_dir := Vector2(cos(a) * dir, sin(a))
+			plate_pts.append(local_dir * (hit_radius * 0.95))
+		# Close the polygon back through center for a fan look.
+		plate_pts.append(Vector2.ZERO)
+		draw_colored_polygon(plate_pts, Color(plate_color.r, plate_color.g, plate_color.b, 0.55))
 
 
 func _draw_squid() -> void:
-	var tint = GameData.get_fish_tint()
-	var body_color = color * tint
+	var body_color = color
 	# Squid body (triangular mantle pointing in burst direction).
 	# When speared, spear sets node rotation externally — keep local draw flat.
 	var ang = 0.0
@@ -401,8 +528,7 @@ func _draw_squid() -> void:
 
 
 func _draw_anglerfish() -> void:
-	var tint = GameData.get_fish_tint()
-	var body_color = color * tint
+	var body_color = color
 	body_color.a = 0.55  # body is faint — almost invisible in dark zones
 	var facing_right = true if speared else velocity.x >= 0
 	var dir = 1.0 if facing_right else -1.0
