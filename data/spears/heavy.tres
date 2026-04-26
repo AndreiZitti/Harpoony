@@ -20,48 +20,39 @@ net_max_catch = 1
 bypasses_defenses = true
 upgrades = {
 "speed_mult": {
-	"name": "Reinforced Shaft",
-	"description": "+15% travel speed (baseline).",
-	"icon": "➤",
-	"max_level": 1,
-	"costs": [200],
-	"field": "speed_mult",
-	"step": 0.15
+    "name": "Reinforced Shaft",
+    "description": "+10% travel speed per level.",
+    "icon": "➤",
+    "max_level": 4,
+    "costs": [80, 200, 500, 1200],
+    "field": "speed_mult",
+    "step": 0.1
 },
-"sharp_tip": {
-	"name": "Sharp Tip",
-	"description": "Crit branch — 25% chance for 2x cash on hit.",
-	"icon": "◆",
-	"max_level": 1,
-	"costs": [500],
-	"field": "crit_chance",
-	"step": 0.25
-},
-"perfect_strike": {
-	"name": "Perfect Strike",
-	"description": "Crit branch — direct-center hits crit at 3x.",
-	"icon": "★",
-	"max_level": 1,
-	"costs": [1200],
-	"field": "perfect_strike",
-	"step": 1
+"crit_chance": {
+    "name": "Sharp Tip",
+    "description": "+5% chance per level for 2x cash on hit.",
+    "icon": "◆",
+    "max_level": 5,
+    "costs": [200, 500, 1000, 2000, 4000],
+    "field": "crit_chance",
+    "step": 0.05
 },
 "pierce_count": {
-	"name": "Drill Tip",
-	"description": "Penetrate branch — pierces up to 3 fish in a line.",
-	"icon": "✦",
-	"max_level": 1,
-	"costs": [600],
-	"field": "pierce_count",
-	"step": 2
+    "name": "Drill Tip",
+    "description": "+1 fish pierced per shot, per level.",
+    "icon": "✦",
+    "max_level": 3,
+    "costs": [400, 1000, 2500],
+    "field": "pierce_count",
+    "step": 1
 },
-"sonic_boom": {
-	"name": "Sonic Boom",
-	"description": "Penetrate branch — impact stuns nearby fish briefly.",
-	"icon": "◊",
-	"max_level": 1,
-	"costs": [1100],
-	"field": "sonic_boom",
-	"step": 1
+"value_bonus": {
+    "name": "Trophy Bonus",
+    "description": "+15% cash per hit, per level.",
+    "icon": "✱",
+    "max_level": 4,
+    "costs": [300, 700, 1500, 3500],
+    "field": "value_bonus",
+    "step": 0.15
 }
 }

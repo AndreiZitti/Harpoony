@@ -19,48 +19,39 @@ net_radius = 0.0
 net_max_catch = 1
 upgrades = {
 "speed_mult": {
-	"name": "Aerodynamic Shaft",
-	"description": "+15% travel speed.",
-	"icon": "➤",
-	"max_level": 1,
-	"costs": [40],
-	"field": "speed_mult",
-	"step": 0.15
-},
-"reel_speed_mult": {
-	"name": "Rapid Reel",
-	"description": "Speed branch — +25% reel return.",
-	"icon": "≣",
-	"max_level": 1,
-	"costs": [120],
-	"field": "reel_speed_mult",
-	"step": 0.25
-},
-"twin_shot": {
-	"name": "Twin Shot",
-	"description": "Speed branch — fire two spears per click.",
-	"icon": "❙❙",
-	"max_level": 1,
-	"costs": [450],
-	"field": "twin_shot",
-	"step": 1
+    "name": "Aerodynamic Shaft",
+    "description": "+10% travel speed per level.",
+    "icon": "➤",
+    "max_level": 5,
+    "costs": [30, 80, 200, 500, 1200],
+    "field": "speed_mult",
+    "step": 0.1
 },
 "hit_radius_bonus": {
-	"name": "Wider Tip",
-	"description": "Power branch — +12 hit radius.",
-	"icon": "◎",
-	"max_level": 1,
-	"costs": [80],
-	"field": "hit_radius_bonus",
-	"step": 12.0
+    "name": "Wider Tip",
+    "description": "+6 hit radius per level — easier to land hits.",
+    "icon": "◎",
+    "max_level": 4,
+    "costs": [40, 120, 300, 800],
+    "field": "hit_radius_bonus",
+    "step": 6.0
+},
+"reel_speed_mult": {
+    "name": "Rapid Reel",
+    "description": "+15% reel return per level.",
+    "icon": "≣",
+    "max_level": 4,
+    "costs": [50, 150, 400, 1000],
+    "field": "reel_speed_mult",
+    "step": 0.15
 },
 "value_bonus": {
-	"name": "Polished Tip",
-	"description": "Power branch — +50% cash per hit.",
-	"icon": "✱",
-	"max_level": 1,
-	"costs": [350],
-	"field": "value_bonus",
-	"step": 0.5
+    "name": "Polished Tip",
+    "description": "+15% cash per hit, per level.",
+    "icon": "✱",
+    "max_level": 5,
+    "costs": [60, 180, 450, 1100, 2500],
+    "field": "value_bonus",
+    "step": 0.15
 }
 }

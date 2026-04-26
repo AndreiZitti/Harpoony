@@ -8,6 +8,15 @@ const COL_DEPTH := Color(0.85, 0.7, 0.35)
 const COL_DIM := Color(0.55, 0.6, 0.7)
 const COL_TEXT := Color(0.92, 0.94, 1.0)
 const COL_TEXT_MUTED := Color(0.65, 0.7, 0.82)
+const COL_PIP_FILLED := Color(1.0, 0.85, 0.3)
+const COL_PIP_HOLLOW := Color(0.4, 0.45, 0.55)
+
+# Spear cards become visible as zones unlock. Index matches GameData.unlocked_zone_index.
+const MIN_ZONE_FOR_SPEAR := {
+	&"normal": 0,
+	&"net": 1,
+	&"heavy": 2,
+}
 
 var root_control: Control
 
@@ -308,7 +317,17 @@ func _build_spears_column() -> Control:
 		card_hbox.add_child(card_data["card"])
 		spear_card_widgets[t.id] = card_data
 
+	_apply_zone_gating()
 	return wrap_box
+
+
+# Hide spear cards whose zone gate hasn't been met yet. Called on build and on zone unlocks.
+func _apply_zone_gating() -> void:
+	for id in spear_card_widgets.keys():
+		var w: Dictionary = spear_card_widgets[id]
+		var card: Control = w["card"]
+		var min_zone: int = int(MIN_ZONE_FOR_SPEAR.get(id, 0))
+		card.visible = GameData.unlocked_zone_index >= min_zone
 
 
 func _build_spear_card(t: SpearType) -> Dictionary:
@@ -432,7 +451,7 @@ func _build_spear_card(t: SpearType) -> Dictionary:
 # tooltip surfaces full name + description on hover. Razor Edge gets a goal accent.
 func _build_upgrade_tile(spear_id: StringName, key: String, def: Dictionary) -> Dictionary:
 	var btn = Button.new()
-	btn.custom_minimum_size = Vector2(70, 60)
+	btn.custom_minimum_size = Vector2(82, 72)
 	btn.add_theme_font_size_override("font_size", 18)
 	btn.clip_text = false
 	btn.pressed.connect(_on_spear_upgrade_pressed.bind(spear_id, key))
@@ -453,10 +472,14 @@ func _build_upgrade_tile(spear_id: StringName, key: String, def: Dictionary) -> 
 	icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(icon_lbl)
 
-	var pips_lbl = Label.new()
-	pips_lbl.add_theme_font_size_override("font_size", 9)
-	pips_lbl.add_theme_color_override("font_color", COL_TEXT_MUTED)
-	pips_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var pips_lbl = RichTextLabel.new()
+	pips_lbl.bbcode_enabled = true
+	pips_lbl.fit_content = true
+	pips_lbl.scroll_active = false
+	pips_lbl.autowrap_mode = TextServer.AUTOWRAP_OFF
+	pips_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pips_lbl.add_theme_font_size_override("normal_font_size", 13)
+	pips_lbl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	content.add_child(pips_lbl)
 
 	var price_lbl = Label.new()
@@ -564,6 +587,7 @@ func _refresh_all() -> void:
 	_refresh_unlock_zone_button()
 	_refresh_cheat_button()
 	_refresh_dive_button()
+	_apply_zone_gating()
 	_refresh_spear_column()
 
 
@@ -659,7 +683,7 @@ func _refresh_spear_column() -> void:
 			var def: Dictionary = t.upgrades[key]
 			var ud: Dictionary = upg_rows[key]
 			var btn: Button = ud["button"]
-			var pips: Label = ud["pips_lbl"]
+			var pips: RichTextLabel = ud["pips_lbl"]
 			var price: Label = ud["price_lbl"]
 			var is_goal: bool = ud["is_goal"]
 			var level := GameData.get_spear_upgrade_level(id, key)
@@ -693,9 +717,16 @@ func _refresh_spear_column() -> void:
 
 
 func _pip_string(level: int, max_level: int) -> String:
-	var s := ""
+	# BBCode-colored dots for prominence on the tile (filled = warm yellow, hollow = dim gray).
+	var filled_hex := COL_PIP_FILLED.to_html(false)
+	var hollow_hex := COL_PIP_HOLLOW.to_html(false)
+	var s := "[center]"
 	for i in max_level:
-		s += "●" if i < level else "○"
+		if i < level:
+			s += "[color=#%s]●[/color]" % filled_hex
+		else:
+			s += "[color=#%s]○[/color]" % hollow_hex
+	s += "[/center]"
 	return s
 
 
