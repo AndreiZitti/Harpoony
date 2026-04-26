@@ -147,6 +147,14 @@ func setup(s: String, start_pos: Vector2, direction_right: bool) -> void:
 			wave_frequency = 1.0
 			wave_amplitude = 8.0
 			size_class = SIZE_MEDIUM
+	# Apply dev-panel runtime overrides last so they win over the species defaults.
+	if GameData.fish_stat_overrides.has(species):
+		var ov: Dictionary = GameData.fish_stat_overrides[species]
+		if ov.has("base_value"): base_value = int(ov["base_value"])
+		if ov.has("speed"): speed = float(ov["speed"])
+		if ov.has("hit_radius"): hit_radius = float(ov["hit_radius"])
+		if ov.has("wave_amplitude"): wave_amplitude = float(ov["wave_amplitude"])
+		if ov.has("wave_frequency"): wave_frequency = float(ov["wave_frequency"])
 	forward_sign = 1.0 if direction_right else -1.0
 	velocity = Vector2(speed * forward_sign, 0)
 	global_position = start_pos

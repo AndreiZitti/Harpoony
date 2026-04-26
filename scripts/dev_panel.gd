@@ -19,6 +19,13 @@ const STAGE_PRESETS = [
 
 const TAB_NAMES = ["Presets", "Spears", "Fish", "Costs", "Game", "Spawn"]
 
+# Order matches the species list in fish.gd::setup. Sub-tabs render in this order.
+const FISH_SPECIES = [
+	"sardine", "grouper", "tuna", "pufferfish", "mahimahi",
+	"squid", "lanternfish", "anglerfish", "triggerfish",
+	"marlin", "jellyfish", "whitewhale",
+]
+
 # Mirrors GameMenu's spawn list so the dev panel can re-expose the same buttons.
 const DEV_SPECIES_LIST = [
 	["Sardine school", "sardine"],
@@ -142,7 +149,7 @@ func _build_ui() -> void:
 
 	_build_presets_tab()
 	_build_spears_tab()
-	_build_placeholder_tab("Fish", "Phase 3 — sliders for fish base values, speed, hit radius. Coming soon.")
+	_build_fish_tab()
 	_build_placeholder_tab("Costs", "Phase 4 — edit upgrade cost ladders. Coming soon.")
 	_build_game_tab()
 	_build_spawn_tab()
@@ -263,6 +270,140 @@ func _build_spawn_tab() -> void:
 	whale_btn.custom_minimum_size = Vector2(220, 32)
 	whale_btn.pressed.connect(func(): _spawn("whitewhale"))
 	row.add_child(whale_btn)
+
+
+func _build_fish_tab() -> void:
+	# Per-species sub-tabs. Sliders write to GameData.fish_stat_overrides AND
+	# patch every live fish of that species so changes are visible instantly.
+	var page := _make_tab_page("Fish")
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(v)
+
+	var blurb := Label.new()
+	blurb.text = "Live-tune each species. Overrides apply to spawned fish + future spawns until reset."
+	blurb.add_theme_color_override("font_color", Color(0.75, 0.8, 0.92))
+	v.add_child(blurb)
+
+	var sub_tabs := TabContainer.new()
+	sub_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sub_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sub_tabs)
+
+	for species in FISH_SPECIES:
+		var sub_page := MarginContainer.new()
+		sub_page.name = species.capitalize()
+		sub_page.add_theme_constant_override("margin_left", 6)
+		sub_page.add_theme_constant_override("margin_right", 6)
+		sub_page.add_theme_constant_override("margin_top", 6)
+		sub_page.add_theme_constant_override("margin_bottom", 6)
+		sub_tabs.add_child(sub_page)
+		sub_page.add_child(_build_fish_subtab(species))
+
+
+func _build_fish_subtab(species: String) -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(v)
+
+	# Header: name + reset-overrides button.
+	var hdr := HBoxContainer.new()
+	hdr.add_theme_constant_override("separation", 8)
+	v.add_child(hdr)
+	var name_lbl := Label.new()
+	name_lbl.text = species.capitalize()
+	name_lbl.add_theme_font_size_override("font_size", 16)
+	name_lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+	hdr.add_child(name_lbl)
+	var spc := Control.new()
+	spc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr.add_child(spc)
+	var reset_btn := Button.new()
+	reset_btn.text = "Reset overrides"
+	reset_btn.pressed.connect(func(): _reset_fish_overrides(species))
+	hdr.add_child(reset_btn)
+
+	v.add_child(_section_label("Base Stats (live overrides)"))
+
+	var defaults: Dictionary = _fish_defaults_for(species)
+
+	_add_slider_row(v, "base_value", 1.0, 1500.0, 1.0,
+		func(): return _get_fish_override(species, "base_value", defaults["base_value"]),
+		func(val): _set_fish_override(species, "base_value", val))
+	_add_slider_row(v, "speed", 0.0, 400.0, 5.0,
+		func(): return _get_fish_override(species, "speed", defaults["speed"]),
+		func(val): _set_fish_override(species, "speed", val))
+	_add_slider_row(v, "hit_radius", 4.0, 60.0, 1.0,
+		func(): return _get_fish_override(species, "hit_radius", defaults["hit_radius"]),
+		func(val): _set_fish_override(species, "hit_radius", val))
+	_add_slider_row(v, "wave_amplitude", 0.0, 50.0, 1.0,
+		func(): return _get_fish_override(species, "wave_amplitude", defaults["wave_amplitude"]),
+		func(val): _set_fish_override(species, "wave_amplitude", val))
+	_add_slider_row(v, "wave_frequency", 0.1, 8.0, 0.1,
+		func(): return _get_fish_override(species, "wave_frequency", defaults["wave_frequency"]),
+		func(val): _set_fish_override(species, "wave_frequency", val))
+
+	return scroll
+
+
+func _get_fish_override(species: String, field: String, fallback: float) -> float:
+	if not GameData.fish_stat_overrides.has(species):
+		return fallback
+	var ov: Dictionary = GameData.fish_stat_overrides[species]
+	return float(ov.get(field, fallback))
+
+
+func _set_fish_override(species: String, field: String, value: float) -> void:
+	if not GameData.fish_stat_overrides.has(species):
+		GameData.fish_stat_overrides[species] = {}
+	GameData.fish_stat_overrides[species][field] = value
+	_apply_to_existing_fish(species, field, value)
+
+
+func _apply_to_existing_fish(species: String, field: String, value: float) -> void:
+	for f in get_tree().get_nodes_in_group("fish"):
+		if f is Fish and f.species == species:
+			match field:
+				"base_value": f.base_value = int(value)
+				"speed": f.speed = value
+				"hit_radius":
+					f.hit_radius = value
+					f._update_collision_radius()
+				"wave_amplitude": f.wave_amplitude = value
+				"wave_frequency": f.wave_frequency = value
+
+
+func _reset_fish_overrides(species: String) -> void:
+	GameData.fish_stat_overrides.erase(species)
+	# Re-close + re-open to refresh slider readouts back to defaults.
+	if is_open():
+		close()
+		toggle()
+
+
+func _fish_defaults_for(species: String) -> Dictionary:
+	# Mirrors fish.gd::setup so sliders show the actual baseline before any
+	# override is applied. wave_amplitude defaults to 20.0 unless setup overrides it.
+	match species:
+		"sardine": return {"base_value": 4, "speed": 160.0, "hit_radius": 10.0, "wave_amplitude": 20.0, "wave_frequency": 5.5}
+		"grouper": return {"base_value": 15, "speed": 80.0, "hit_radius": 18.0, "wave_amplitude": 20.0, "wave_frequency": 2.8}
+		"tuna": return {"base_value": 40, "speed": 120.0, "hit_radius": 24.0, "wave_amplitude": 20.0, "wave_frequency": 3.6}
+		"pufferfish": return {"base_value": 12, "speed": 50.0, "hit_radius": 13.0, "wave_amplitude": 20.0, "wave_frequency": 1.5}
+		"mahimahi": return {"base_value": 25, "speed": 90.0, "hit_radius": 16.0, "wave_amplitude": 20.0, "wave_frequency": 4.0}
+		"squid": return {"base_value": 18, "speed": 0.0, "hit_radius": 13.0, "wave_amplitude": 20.0, "wave_frequency": 1.0}
+		"lanternfish": return {"base_value": 5, "speed": 130.0, "hit_radius": 9.0, "wave_amplitude": 20.0, "wave_frequency": 4.5}
+		"anglerfish": return {"base_value": 50, "speed": 30.0, "hit_radius": 16.0, "wave_amplitude": 20.0, "wave_frequency": 0.9}
+		"triggerfish": return {"base_value": 30, "speed": 70.0, "hit_radius": 16.0, "wave_amplitude": 8.0, "wave_frequency": 1.6}
+		"marlin": return {"base_value": 60, "speed": 280.0, "hit_radius": 22.0, "wave_amplitude": 20.0, "wave_frequency": 1.0}
+		"jellyfish": return {"base_value": 18, "speed": 30.0, "hit_radius": 16.0, "wave_amplitude": 8.0, "wave_frequency": 1.0}
+		"whitewhale": return {"base_value": 800, "speed": 60.0, "hit_radius": 40.0, "wave_amplitude": 30.0, "wave_frequency": 0.6}
+	return {"base_value": 10, "speed": 100.0, "hit_radius": 12.0, "wave_amplitude": 20.0, "wave_frequency": 2.0}
 
 
 func _build_spears_tab() -> void:

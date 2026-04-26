@@ -36,6 +36,13 @@ var oxygen_capacity_override: float = -1.0   # ≥0 overrides level-based capaci
 var bag_capacity_override: int = -1          # ≥0 overrides level-based bag size
 var dive_travel_duration: float = 1.5        # was a const in main.gd; tunable here
 
+# Per-species runtime overrides written by the dev panel Fish tab.
+# Keys: species name (String). Values: { field_name: value } dict.
+# fish.gd::setup applies these after its species match block, so future spawns
+# pick them up automatically. The dev panel also pushes changes to live fish
+# already in the scene so tweaks feel immediate.
+var fish_stat_overrides: Dictionary = {}
+
 var zones: Array[ZoneConfig] = []
 var selected_zone_index: int = 0
 var unlocked_zone_index: int = 0  # highest unlocked index (0..zones.size()-1)
