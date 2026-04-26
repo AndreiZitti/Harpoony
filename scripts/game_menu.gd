@@ -242,3 +242,11 @@ func _on_cheat_pressed() -> void:
 
 func _on_dev_toggle_pressed() -> void:
 	_set_dev_mode(not dev_mode_active)
+
+
+# Programmatic entry point — lets MainMenu's "Dev Mode" button open the dev
+# spawn panel directly without going through the pause overlay. Routes through
+# the same _set_dev_mode() path as the in-menu toggle.
+func enable_dev_mode() -> void:
+	if not dev_mode_active:
+		_set_dev_mode(true)

@@ -9,6 +9,8 @@ extends Node2D
 const BubbleFieldScript = preload("res://scripts/bubble_field.gd")
 const GameMenuScript = preload("res://scripts/game_menu.gd")
 const EndingScreenScript = preload("res://scripts/ending_screen.gd")
+const MainMenuScript = preload("res://scripts/main_menu.gd")
+const SplashScript = preload("res://scripts/splash_screen.gd")
 var _bubble_field: Node2D = null
 var _game_menu: CanvasLayer = null
 var _ending_screen: CanvasLayer = null
@@ -26,7 +28,6 @@ func _ready() -> void:
 	oxygen_timer.timeout.connect(_on_oxygen_tick)
 
 	GameData.set_dive_state(GameData.DiveState.SURFACE)
-	upgrade_shop.show_shop()
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(false)
 
@@ -54,6 +55,33 @@ func _ready() -> void:
 
 	GameData.whitewhale_caught_signal.connect(_on_whitewhale_caught)
 
+	# Opening flow: MainMenu → (Splash on Normal) → UpgradeShop.
+	_show_main_menu()
+
+
+func _show_main_menu() -> void:
+	var menu := CanvasLayer.new()
+	menu.set_script(MainMenuScript)
+	menu.name = "MainMenu"
+	add_child(menu)
+	menu.mode_selected.connect(_on_mode_selected)
+
+
+func _on_mode_selected(mode: StringName) -> void:
+	if mode == &"dev":
+		GameData.cheat_mode = true
+		GameData.cash_changed.emit(GameData.cash)
+		if _game_menu and _game_menu.has_method("enable_dev_mode"):
+			_game_menu.enable_dev_mode()
+		upgrade_shop.show_shop()
+		return
+	# Normal mode: play splash, then open shop.
+	var splash := CanvasLayer.new()
+	splash.set_script(SplashScript)
+	splash.name = "Splash"
+	add_child(splash)
+	splash.finished.connect(func(): upgrade_shop.show_shop())
+
 
 func _dev_spawn(species: String) -> void:
 	if fish_spawner.has_method("dev_spawn"):
@@ -63,6 +91,8 @@ func _dev_spawn(species: String) -> void:
 # Reset session: zero cash, clear upgrades + unlocks, fresh bag, back to surface.
 func _on_session_reset() -> void:
 	GameData.cash = 0.0
+	GameData.dive_number = 0
+	GameData.dive_number_changed.emit(0)
 	GameData.upgrade_levels = {"oxygen": 0, "spear_bag": 0}
 	GameData.unlocked_zone_index = 0
 	GameData.selected_zone_index = 0

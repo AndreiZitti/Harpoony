@@ -22,6 +22,7 @@ signal spear_type_unlocked(id: StringName)
 signal spear_upgrade_changed(id: StringName, key: String, level: int)
 signal bag_loadout_changed
 signal whitewhale_caught_signal
+signal dive_number_changed(n: int)
 
 # Persistent state
 var cash: float = 0.0
@@ -50,6 +51,8 @@ var dive_fish_caught: int = 0
 var last_dive_cash: int = 0
 var last_dive_shots: int = 0
 var last_dive_fish: int = 0
+# Campaign progress: increments at the start of each dive (soft target = 100).
+var dive_number: int = 0
 
 # Upgrade levels (leveled, multi-purchase)
 var upgrade_levels: Dictionary = {
@@ -484,6 +487,8 @@ func set_dive_state(state: int) -> void:
 # --- Dive lifecycle ---
 
 func start_dive() -> void:
+	dive_number += 1
+	dive_number_changed.emit(dive_number)
 	dive_cash = 0.0
 	active_spear_count = 0
 	dive_shots_fired = 0

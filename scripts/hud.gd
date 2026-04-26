@@ -16,6 +16,7 @@ var popups: Control
 var session_timer_label: Label
 var session_reset_button: Button
 var session_time: float = 0.0
+var dive_counter_label: Label
 
 const SPECIES_COLOR = {
 	"sardine": Color(0.85, 0.92, 1.0),
@@ -37,6 +38,7 @@ func _ready() -> void:
 	GameData.dive_state_changed.connect(_on_dive_state_changed)
 	GameData.zone_changed.connect(func(_z): _refresh_depth())
 	GameData.zone_unlocked.connect(func(_i): _refresh_depth())
+	GameData.dive_number_changed.connect(_on_dive_number_changed)
 	_refresh()
 
 
@@ -65,6 +67,14 @@ func _build_ui() -> void:
 	total_cash_label.add_theme_font_size_override("font_size", 22)
 	total_cash_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 	left_vbox.add_child(total_cash_label)
+
+	# Dive counter — soft campaign target is 100 dives. Hidden before first dive.
+	dive_counter_label = Label.new()
+	dive_counter_label.text = ""
+	dive_counter_label.add_theme_font_size_override("font_size", 13)
+	dive_counter_label.add_theme_color_override("font_color", Color(0.75, 0.82, 0.92))
+	dive_counter_label.visible = false
+	left_vbox.add_child(dive_counter_label)
 
 	session_timer_label = Label.new()
 	session_timer_label.text = "0:00"
@@ -232,8 +242,20 @@ func _refresh() -> void:
 	_on_cash_changed(GameData.cash)
 	_on_oxygen_changed(GameData.oxygen)
 	_on_dive_state_changed(GameData.dive_state)
+	_on_dive_number_changed(GameData.dive_number)
 	_refresh_depth()
 	_refresh_queue_preview()
+
+
+func _on_dive_number_changed(n: int) -> void:
+	if dive_counter_label == null:
+		return
+	if n <= 0:
+		dive_counter_label.visible = false
+		dive_counter_label.text = ""
+		return
+	dive_counter_label.visible = true
+	dive_counter_label.text = "Dive %d / 100" % n
 
 
 func _on_cash_changed(_amount: float) -> void:
