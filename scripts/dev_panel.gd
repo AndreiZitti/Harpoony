@@ -381,6 +381,7 @@ func _apply_to_existing_fish(species: String, field: String, value: float) -> vo
 
 func _reset_fish_overrides(species: String) -> void:
 	GameData.fish_stat_overrides.erase(species)
+	GameData.request_dev_tuning_save()
 	# Re-close + re-open to refresh slider readouts back to defaults.
 	if is_open():
 		close()
@@ -567,6 +568,7 @@ func _reset_spear_to_disk(spear_id: StringName) -> void:
 	]
 	for prop in fields:
 		live.set(prop, fresh.get(prop))
+	GameData.request_dev_tuning_save()
 	# Easiest way to refresh visible slider values: close + reopen the panel.
 	# (Re-builds the whole UI tree, picking up the new values.)
 	if is_open():
@@ -629,7 +631,9 @@ func _add_spin_row(parent: Node, label_text: String, min_v: float, max_v: float,
 	spin.step = step
 	spin.value = value
 	spin.custom_minimum_size = Vector2(140, 0)
-	spin.value_changed.connect(on_change)
+	spin.value_changed.connect(func(v: float):
+		on_change.call(v)
+		GameData.request_dev_tuning_save())
 	row.add_child(spin)
 	return spin
 
@@ -666,7 +670,8 @@ func _add_slider_row(parent: Node, label_text: String, lo: float, hi: float,
 
 	slider.value_changed.connect(func(v: float):
 		setter.call(v)
-		val_lbl.text = "%.2f" % v)
+		val_lbl.text = "%.2f" % v
+		GameData.request_dev_tuning_save())
 	return slider
 
 
@@ -680,7 +685,9 @@ func _add_check_row(parent: Node, label_text: String, initial: bool,
 	cb.text = label_text
 	cb.button_pressed = initial
 	cb.add_theme_font_size_override("font_size", 13)
-	cb.toggled.connect(on_toggle)
+	cb.toggled.connect(func(pressed: bool):
+		on_toggle.call(pressed)
+		GameData.request_dev_tuning_save())
 	row.add_child(cb)
 	return cb
 
@@ -689,6 +696,7 @@ func _add_check_row(parent: Node, label_text: String, initial: bool,
 
 func _on_preset_pressed(stage: int, level: StringName) -> void:
 	GameData.apply_stage_preset(stage, level)
+	GameData.request_dev_tuning_save()
 	_refresh_state_label()
 	_refresh_game_tab_values()
 	close()

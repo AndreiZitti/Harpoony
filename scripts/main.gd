@@ -29,6 +29,8 @@ var _hit_stop_active: bool = false
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.04, 0.08, 0.14))
+	# Restore last dev-panel tuning (silent no-op on first run / no file).
+	GameData.load_dev_tuning()
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 	upgrade_shop.next_dive_pressed.connect(_on_dive_pressed)

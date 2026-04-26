@@ -1,5 +1,8 @@
 extends Node
 
+const DEV_TUNING_PATH := "user://dev_tuning.json"
+var _dev_save_timer: Timer = null
+
 
 func _ready() -> void:
 	for key in upgrades.keys():
@@ -681,3 +684,116 @@ func _preset_bag_lvl(_stage: int, level: StringName) -> int:
 	if level == &"whale_ready":
 		return 2
 	return 0
+
+
+# --- Dev tuning autosave/autoload ---
+#
+# DevPanel mutations push tuning state to user://dev_tuning.json so balance work
+# survives restarts. Source .tres files are NEVER modified — autosave only writes
+# the JSON; reset paths reload .tres-on-disk separately.
+
+const _SPEAR_TUNABLE_FIELDS := [
+	"speed_mult", "reel_speed_mult", "hit_radius_bonus",
+	"value_bonus", "pierce_count", "net_radius",
+	"net_max_catch", "crit_chance", "catches_medium",
+	"bypasses_defenses", "twin_shot", "perfect_strike",
+	"sonic_boom", "lure_net",
+]
+
+
+func _save_setup_dev_tuning_timer() -> void:
+	# Lazy-create a one-shot debounce timer.
+	if _dev_save_timer != null:
+		return
+	_dev_save_timer = Timer.new()
+	_dev_save_timer.one_shot = true
+	_dev_save_timer.wait_time = 0.4
+	_dev_save_timer.timeout.connect(save_dev_tuning)
+	add_child(_dev_save_timer)
+
+
+func request_dev_tuning_save() -> void:
+	# Restarting an active timer collapses N rapid changes into a single write.
+	_save_setup_dev_tuning_timer()
+	_dev_save_timer.start()
+
+
+func save_dev_tuning() -> void:
+	var data := {
+		"version": 1,
+		"game": {
+			"dev_infinite_oxygen": dev_infinite_oxygen,
+			"dev_skip_shop": dev_skip_shop,
+			"oxygen_capacity_override": oxygen_capacity_override,
+			"bag_capacity_override": bag_capacity_override,
+			"dive_travel_duration": dive_travel_duration,
+		},
+		"fish_stat_overrides": fish_stat_overrides.duplicate(true),
+		"spear_upgrade_levels": spear_upgrade_levels.duplicate(true),
+		"spears": _serialize_spears(),
+	}
+	var f := FileAccess.open(DEV_TUNING_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Failed to open dev tuning save path")
+		return
+	f.store_string(JSON.stringify(data, "  "))
+	f.close()
+
+
+func load_dev_tuning() -> void:
+	if not FileAccess.file_exists(DEV_TUNING_PATH):
+		return
+	var f := FileAccess.open(DEV_TUNING_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var raw := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(raw)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("Dev tuning file invalid; ignoring")
+		return
+	var data: Dictionary = parsed
+	# Game-tab tunables.
+	var g: Dictionary = data.get("game", {})
+	dev_infinite_oxygen = g.get("dev_infinite_oxygen", dev_infinite_oxygen)
+	dev_skip_shop = g.get("dev_skip_shop", dev_skip_shop)
+	oxygen_capacity_override = float(g.get("oxygen_capacity_override", oxygen_capacity_override))
+	bag_capacity_override = int(g.get("bag_capacity_override", bag_capacity_override))
+	dive_travel_duration = float(g.get("dive_travel_duration", dive_travel_duration))
+	# Fish overrides — wholesale replace (dict shape).
+	var fov = data.get("fish_stat_overrides", {})
+	if typeof(fov) == TYPE_DICTIONARY:
+		fish_stat_overrides = fov
+	# Spear upgrade levels — merge so unknown saved keys don't blow away schema.
+	var lv = data.get("spear_upgrade_levels", {})
+	if typeof(lv) == TYPE_DICTIONARY:
+		for spear_id in lv.keys():
+			if not spear_upgrade_levels.has(spear_id):
+				spear_upgrade_levels[spear_id] = {}
+			for k in lv[spear_id].keys():
+				spear_upgrade_levels[spear_id][k] = int(lv[spear_id][k])
+	# Spear base fields — apply onto live SpearType resources (no .tres write).
+	var sd = data.get("spears", {})
+	if typeof(sd) == TYPE_DICTIONARY:
+		_apply_spear_fields(sd)
+
+
+func _serialize_spears() -> Dictionary:
+	var out := {}
+	for s in spear_types:
+		var d := {}
+		for fld in _SPEAR_TUNABLE_FIELDS:
+			d[fld] = s.get(fld)
+		out[str(s.id)] = d
+	return out
+
+
+func _apply_spear_fields(sd: Dictionary) -> void:
+	for s in spear_types:
+		var key := str(s.id)
+		if not sd.has(key):
+			continue
+		var d: Dictionary = sd[key]
+		for fld in _SPEAR_TUNABLE_FIELDS:
+			if d.has(fld):
+				s.set(fld, d[fld])
