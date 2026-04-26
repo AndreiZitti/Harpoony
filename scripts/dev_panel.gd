@@ -123,7 +123,7 @@ func _build_ui() -> void:
 	var top := HBoxContainer.new()
 	v.add_child(top)
 	var title := Label.new()
-	title.text = "DEV PANEL  (F2 to toggle)"
+	title.text = "DEV PANEL"
 	title.add_theme_font_size_override("font_size", 18)
 	title.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
 	top.add_child(title)

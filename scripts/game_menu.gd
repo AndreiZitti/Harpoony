@@ -113,8 +113,8 @@ func _build_menu_panel() -> PanelContainer:
 	dev_toggle_button = _make_menu_button("", _on_dev_toggle_pressed)
 	vbox.add_child(dev_toggle_button)
 
-	# Opens the new full-screen tuning panel (F2 also toggles it).
-	dev_panel_button = _make_menu_button("Open Dev Panel (F2)", _on_dev_panel_pressed)
+	# Opens the full-screen tuning panel. Dev mode auto-opens it on entry.
+	dev_panel_button = _make_menu_button("Open Dev Panel", _on_dev_panel_pressed)
 	vbox.add_child(dev_panel_button)
 
 	_refresh_button_text()

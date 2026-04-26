@@ -76,7 +76,8 @@ func _ready() -> void:
 	add_child(_ending_screen)
 	_ending_screen.reset_requested.connect(_on_session_reset)
 
-	# Dev tuning panel — F2 toggles, also reachable from GameMenu's button.
+	# Dev tuning panel — opened automatically on Dev Mode entry, also reachable
+	# from GameMenu's "Open Dev Panel" button.
 	_dev_panel = CanvasLayer.new()
 	_dev_panel.set_script(DevPanelScript)
 	_dev_panel.name = "DevPanel"
@@ -102,11 +103,23 @@ func _show_main_menu() -> void:
 
 func _on_mode_selected(mode: StringName) -> void:
 	if mode == &"dev":
+		# Dev mode = the tuning experience. Skip the shop entirely; the dev panel
+		# IS the UI. Default flags are tuned for nonstop fishing iteration.
 		GameData.cheat_mode = true
+		GameData.dev_infinite_oxygen = true
+		GameData.dev_skip_shop = true
+		# Force unlock everything so the player can swap spears and zones freely.
+		GameData.unlocked_zone_index = max(GameData.unlocked_zone_index, GameData.zones.size() - 1)
+		GameData.unlocked_spear_types = [&"normal", &"net", &"heavy"]
 		GameData.cash_changed.emit(GameData.cash)
+		GameData.zone_changed.emit(GameData.get_current_zone())
 		if _game_menu and _game_menu.has_method("enable_dev_mode"):
 			_game_menu.enable_dev_mode()
-		upgrade_shop.show_shop()
+		# Auto-open the dev panel — that's the dev-mode entry point now.
+		if _dev_panel and _dev_panel.has_method("toggle"):
+			_dev_panel.toggle()
+		# Skip the shop and dive straight away (skip_shop will keep us looping).
+		_on_dive_pressed()
 		return
 	# Normal mode: play splash, then open shop.
 	var splash := CanvasLayer.new()
@@ -257,14 +270,6 @@ func _enter_surface() -> void:
 func _on_dev_panel_toggle_requested() -> void:
 	if _dev_panel and _dev_panel.has_method("toggle"):
 		_dev_panel.toggle()
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		var kb := event as InputEventKey
-		if kb.keycode == KEY_F2 and _dev_panel and _dev_panel.has_method("toggle"):
-			_dev_panel.toggle()
-			get_viewport().set_input_as_handled()
 
 
 func _on_zone_changed(_zone: ZoneConfig) -> void:
