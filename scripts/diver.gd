@@ -2,7 +2,7 @@ extends Node2D
 
 const SpearScene = preload("res://scenes/spear.tscn")
 const DiverTexture = preload("res://assets/diver/diver_east.png")
-const DIVER_SCALE = 0.4  # 124px source → ~50px on screen, fits inside the aim ring
+const DIVER_SCALE = 0.85  # 124px source → ~105px on screen, fills most of the aim ring
 
 # Spears are instantiated per fire and self-cleanup on arrival. We just track
 # active ones so we can recall them when the dive ends.
