@@ -19,6 +19,8 @@ const DEV_KEYMAP = {
 	KEY_7: "marlin",
 	KEY_8: "grouper",
 	KEY_9: "tuna",
+	KEY_0: "bonito",
+	KEY_MINUS: "blockfish",
 }
 const DEV_SPECIES_LIST = [
 	["Sardine school", "sardine"],
@@ -30,6 +32,8 @@ const DEV_SPECIES_LIST = [
 	["Marlin", "marlin"],
 	["Grouper", "grouper"],
 	["Tuna", "tuna"],
+	["Bonito streak", "bonito"],
+	["Blockfish", "blockfish"],
 ]
 
 var menu_overlay: ColorRect
@@ -154,7 +158,7 @@ func _build_dev_panel() -> PanelContainer:
 	vbox.add_child(title)
 
 	var hint = Label.new()
-	hint.text = "Click or press 1–9 underwater"
+	hint.text = "Click or press 1–9 / 0 underwater"
 	hint.add_theme_font_size_override("font_size", 10)
 	hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.78))
 	vbox.add_child(hint)

@@ -124,7 +124,7 @@ func fire(dir: Vector2) -> bool:
 	state = State.FLYING
 	monitoring = true
 	_hits_this_flight = 0
-	GameData.note_spear_fired()
+	GameData.note_spear_fired(current_type_id)
 	Sfx.fire()
 	_sync_hud()
 	queue_redraw()
@@ -151,6 +151,7 @@ func _pierce_through(fish: Fish) -> void:
 	if fish.size_class == Fish.SIZE_TROPHY:
 		GameData.note_trophy_caught(StringName(species))
 	GameData.add_dive_cash(result["value"])
+	GameData.note_fish_caught(current_type_id, StringName(species), int(result["value"]))
 	var hud = get_tree().current_scene.get_node_or_null("HUD")
 	if hud and hud.has_method("spawn_cash_popup"):
 		hud.spawn_cash_popup(result["value"], arrive_pos, species)
@@ -338,7 +339,7 @@ func _award_fish(fish: Fish) -> void:
 	if fish.size_class == Fish.SIZE_TROPHY:
 		GameData.note_trophy_caught(StringName(species))
 	GameData.add_dive_cash(result["value"])
-	GameData.note_fish_caught()
+	GameData.note_fish_caught(current_type_id, StringName(species), int(result["value"]))
 	Sfx.cash(result["value"])
 	var hud = get_tree().current_scene.get_node_or_null("HUD")
 	if hud and hud.has_method("spawn_cash_popup"):

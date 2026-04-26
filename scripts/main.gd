@@ -12,12 +12,14 @@ const EndingScreenScript = preload("res://scripts/ending_screen.gd")
 const MainMenuScript = preload("res://scripts/main_menu.gd")
 const SplashScript = preload("res://scripts/splash_screen.gd")
 const DevPanelScript = preload("res://scripts/dev_panel.gd")
+const DiveSummaryScript = preload("res://scripts/dive_summary.gd")
 const BoatTexture = preload("res://assets/boat/boat.png")
 const BOAT_DRAW_WIDTH = 240.0  # screen width — bumped from 180 for the new asset
 var _bubble_field: Node2D = null
 var _game_menu: CanvasLayer = null
 var _ending_screen: CanvasLayer = null
 var _dev_panel: CanvasLayer = null
+var _dive_summary: CanvasLayer = null
 var _zone_background: Sprite2D = null
 
 # Dive travel duration is tunable from DevPanel; lives on GameData so it
@@ -92,6 +94,14 @@ func _ready() -> void:
 
 	GameData.whitewhale_caught_signal.connect(_on_whitewhale_caught)
 
+	# Post-dive summary screen — shown between resurface and the shop. Continue
+	# button proceeds to the shop (or, in dev_skip_shop mode, the next dive).
+	_dive_summary = CanvasLayer.new()
+	_dive_summary.set_script(DiveSummaryScript)
+	_dive_summary.name = "DiveSummary"
+	add_child(_dive_summary)
+	_dive_summary.continue_requested.connect(_on_dive_summary_continue)
+
 	# Opening flow: MainMenu → (Splash on Normal) → UpgradeShop.
 	_show_main_menu()
 
@@ -154,6 +164,7 @@ func _on_session_reset() -> void:
 		GameData.spear_upgrade_levels[t.id] = levels
 	GameData.bag_loadout.clear()
 	GameData.auto_fill_bag()
+	GameData.clear_run_history()
 	GameData.cash_changed.emit(0.0)
 	GameData.zone_changed.emit(GameData.get_current_zone())
 	# If a dive is in progress, abort cleanly back to surface.
@@ -260,13 +271,17 @@ func _enter_surface() -> void:
 	GameData.finish_dive()
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(false)
-	if hud and hud.has_method("show_dive_summary"):
-		hud.show_dive_summary(GameData.last_dive_cash, GameData.last_dive_fish, GameData.last_dive_shots)
-	# Dev shortcut: skip the upgrade shop and start the next dive immediately.
-	# Deferred so the resurface frame finishes drawing first.
+	# Dev shortcut: skip the post-dive screen + shop, dive again immediately.
 	if GameData.dev_skip_shop:
 		call_deferred("_on_dive_pressed")
 		return
+	if _dive_summary and _dive_summary.has_method("show_summary"):
+		_dive_summary.show_summary()
+	else:
+		upgrade_shop.show_shop()
+
+
+func _on_dive_summary_continue() -> void:
 	upgrade_shop.show_shop()
 
 

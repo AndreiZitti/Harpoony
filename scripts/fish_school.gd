@@ -12,9 +12,16 @@ const STEER_GAIN = 2.5
 const STEER_SMOOTH = 6.0
 const MAX_SCHOOL_SPEED = 220.0
 const OFFSET_JITTER_INTERVAL = 2.0
-const WAVE_AMPLITUDE = 20.0
+
+# Wave amplitude is a var (not const) so sardine archetypes can override it.
+var wave_amplitude: float = 20.0
 
 enum State { NORMAL, PANIC, REGROUP }
+
+# Sardine archetypes — each school rolls one at spawn so two schools never feel
+# identical. Tight/Loose/Wavy diverge on radius, speed, and undulation depth.
+enum Archetype { TIGHT, LOOSE, WAVY }
+var archetype: int = Archetype.TIGHT
 
 var state: int = State.NORMAL
 var state_timer: float = 0.0
@@ -46,6 +53,8 @@ func setup(species_name: String, start_pos: Vector2, direction_right_: bool, cou
 			leader_speed = 90.0
 			wave_frequency = 4.0
 			SCHOOL_RADIUS = 28.0   # small pod
+		"sardine":
+			_apply_sardine_archetype()
 		_:
 			leader_speed = 160.0
 			wave_frequency = 5.5
@@ -85,10 +94,40 @@ func _update_state(delta: float) -> void:
 			state = State.NORMAL
 
 
+func _apply_sardine_archetype() -> void:
+	# Roll an archetype + small per-school speed jitter so even same-archetype
+	# schools feel distinct. Wavy reads as the "current zone has an undertow"
+	# moment; Loose reads as "lazy big group"; Tight is the net-prime default.
+	archetype = randi() % 3
+	var jitter := randf_range(0.85, 1.15)
+	match archetype:
+		Archetype.TIGHT:
+			SCHOOL_RADIUS = 32.0
+			leader_speed = 160.0 * jitter
+			wave_frequency = 5.5
+			wave_amplitude = 20.0
+		Archetype.LOOSE:
+			SCHOOL_RADIUS = 60.0
+			leader_speed = 130.0 * jitter
+			wave_frequency = 4.0
+			wave_amplitude = 24.0
+		Archetype.WAVY:
+			SCHOOL_RADIUS = 36.0
+			leader_speed = 150.0 * jitter
+			wave_frequency = 3.0
+			wave_amplitude = 50.0
+
+
 func _advance_leader(delta: float) -> void:
 	var dir = 1.0 if direction_right else -1.0
 	leader_pos.x += dir * leader_speed * delta
-	leader_pos.y = base_y + sin(age * wave_frequency + wave_phase) * WAVE_AMPLITUDE
+	leader_pos.y = base_y + sin(age * wave_frequency + wave_phase) * wave_amplitude
+	# Diver avoidance: drift the whole school's path to curve around. Only the
+	# y-component nudges base_y so the school re-centers after passing.
+	var avoid := Fish.diver_avoidance_for(self, leader_pos, "sardine")
+	if avoid != Vector2.ZERO:
+		leader_pos += avoid * delta * 0.7
+		base_y = lerpf(base_y, leader_pos.y, clampf(delta * 2.0, 0.0, 1.0))
 
 
 func _on_member_speared(hit_pos: Vector2) -> void:

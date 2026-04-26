@@ -37,6 +37,8 @@ const DEV_SPECIES_LIST = [
 	["Marlin", "marlin"],
 	["Grouper", "grouper"],
 	["Tuna", "tuna"],
+	["Bonito streak", "bonito"],
+	["Blockfish", "blockfish"],
 ]
 
 var _root: Control

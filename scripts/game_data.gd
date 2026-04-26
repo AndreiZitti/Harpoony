@@ -1,6 +1,8 @@
 extends Node
 
 const DEV_TUNING_PATH := "user://dev_tuning.json"
+const RUN_HISTORY_PATH := "user://run_history.json"
+const RUN_HISTORY_MAX := 200  # cap so the file doesn't grow forever
 var _dev_save_timer: Timer = null
 
 
@@ -9,6 +11,7 @@ func _ready() -> void:
 		assert(key in upgrade_levels, "upgrade_levels missing key: %s" % key)
 	_load_zones()
 	_load_spear_types()
+	load_run_history()
 	set_oxygen(get_oxygen_capacity())
 	set_dive_state(DiveState.SURFACE)
 
@@ -38,6 +41,10 @@ var dev_skip_shop: bool = false              # main.gd's _enter_surface re-dives
 var oxygen_capacity_override: float = -1.0   # ≥0 overrides level-based capacity
 var bag_capacity_override: int = -1          # ≥0 overrides level-based bag size
 var dive_travel_duration: float = 1.5        # was a const in main.gd; tunable here
+# Multiplier on the fish_spawner interval. >1.0 = faster spawns (more fish),
+# <1.0 = slower. Reserved as the hookup point for a future "Reef Density"
+# style upgrade — for now it stays at 1.0 by default.
+var spawn_rate_multiplier: float = 1.0
 
 # Per-species runtime overrides written by the dev panel Fish tab.
 # Keys: species name (String). Values: { field_name: value } dict.
@@ -65,10 +72,23 @@ var dive_state: int = DiveState.SURFACE
 var active_spear_count: int = 0  # spears currently in flight or reeling
 var dive_shots_fired: int = 0
 var dive_fish_caught: int = 0
+# Per-dive breakdowns for the summary screen.
+var dive_shots_by_spear: Dictionary = {}     # spear_id (String) -> int
+var dive_hits_by_spear: Dictionary = {}      # spear_id (String) -> int (fish landed)
+var dive_catches_by_fish: Dictionary = {}    # species (String) -> { count: int, value: int }
+var dive_zone_id: String = ""
+var dive_start_msec: int = 0
 # Snapshotted at end-of-dive so the surface summary can read it.
 var last_dive_cash: int = 0
 var last_dive_shots: int = 0
 var last_dive_fish: int = 0
+var last_dive_shots_by_spear: Dictionary = {}
+var last_dive_hits_by_spear: Dictionary = {}
+var last_dive_catches_by_fish: Dictionary = {}
+var last_dive_zone_id: String = ""
+var last_dive_duration: float = 0.0
+# Persistent run history. Each entry is a frozen copy of the last_dive_* fields.
+var run_history: Array = []
 # Campaign progress: increments at the start of each dive (soft target = 100).
 var dive_number: int = 0
 
@@ -453,9 +473,12 @@ func reshuffle_if_exhausted() -> void:
 	reshuffle_if_round_complete()
 
 
-func note_spear_fired() -> void:
+func note_spear_fired(spear_id: StringName = &"") -> void:
 	active_spear_count += 1
 	dive_shots_fired += 1
+	if spear_id != &"":
+		var key := str(spear_id)
+		dive_shots_by_spear[key] = int(dive_shots_by_spear.get(key, 0)) + 1
 
 
 func note_spear_returned() -> void:
@@ -463,8 +486,19 @@ func note_spear_returned() -> void:
 	reshuffle_if_round_complete()
 
 
-func note_fish_caught() -> void:
+# Records a successful catch — invoked from Spear._award_fish / _pierce_through.
+# Tracks per-spear hit count and per-fish (count, value) for the summary screen.
+func note_fish_caught(spear_id: StringName = &"", species: StringName = &"", value: int = 0) -> void:
 	dive_fish_caught += 1
+	if spear_id != &"":
+		var sk := str(spear_id)
+		dive_hits_by_spear[sk] = int(dive_hits_by_spear.get(sk, 0)) + 1
+	if species != &"":
+		var fk := str(species)
+		var entry: Dictionary = dive_catches_by_fish.get(fk, {"count": 0, "value": 0})
+		entry["count"] = int(entry.get("count", 0)) + 1
+		entry["value"] = int(entry.get("value", 0)) + value
+		dive_catches_by_fish[fk] = entry
 
 
 # Returns the remaining spear ids in the current round (no wrap). Empty when the
@@ -515,6 +549,11 @@ func start_dive() -> void:
 	active_spear_count = 0
 	dive_shots_fired = 0
 	dive_fish_caught = 0
+	dive_shots_by_spear.clear()
+	dive_hits_by_spear.clear()
+	dive_catches_by_fish.clear()
+	dive_zone_id = str(get_current_zone().id) if get_current_zone() else ""
+	dive_start_msec = Time.get_ticks_msec()
 	clamp_bag_loadout()
 	_build_bag_queue()
 	set_oxygen(get_oxygen_capacity())
@@ -522,19 +561,75 @@ func start_dive() -> void:
 
 
 func finish_dive() -> void:
-	# Snapshot for the surface summary toast before clearing per-dive fields.
+	# Snapshot for the surface summary screen before clearing per-dive fields.
 	last_dive_cash = int(dive_cash)
 	last_dive_shots = dive_shots_fired
 	last_dive_fish = dive_fish_caught
+	last_dive_shots_by_spear = dive_shots_by_spear.duplicate(true)
+	last_dive_hits_by_spear = dive_hits_by_spear.duplicate(true)
+	last_dive_catches_by_fish = dive_catches_by_fish.duplicate(true)
+	last_dive_zone_id = dive_zone_id
+	last_dive_duration = max(0.0, (Time.get_ticks_msec() - dive_start_msec) / 1000.0)
+	# Append to persistent history (keeps the last RUN_HISTORY_MAX entries).
+	run_history.append({
+		"dive_n": dive_number,
+		"zone_id": last_dive_zone_id,
+		"cash": last_dive_cash,
+		"fish": last_dive_fish,
+		"shots": last_dive_shots,
+		"shots_by_spear": last_dive_shots_by_spear.duplicate(true),
+		"hits_by_spear": last_dive_hits_by_spear.duplicate(true),
+		"catches_by_fish": last_dive_catches_by_fish.duplicate(true),
+		"duration": last_dive_duration,
+		"timestamp": Time.get_unix_time_from_system(),
+	})
+	if run_history.size() > RUN_HISTORY_MAX:
+		run_history = run_history.slice(run_history.size() - RUN_HISTORY_MAX)
+	save_run_history()
 	cash += dive_cash
 	dive_cash = 0.0
 	dive_shots_fired = 0
 	dive_fish_caught = 0
+	dive_shots_by_spear.clear()
+	dive_hits_by_spear.clear()
+	dive_catches_by_fish.clear()
 	bag_queue.clear()
 	bag_index = 0
 	active_spear_count = 0
 	cash_changed.emit(cash)
 	set_dive_state(DiveState.SURFACE)
+
+
+# --- Run history persistence ---
+
+func save_run_history() -> void:
+	var f := FileAccess.open(RUN_HISTORY_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Failed to open run history save path")
+		return
+	f.store_string(JSON.stringify({"version": 1, "entries": run_history}, "  "))
+	f.close()
+
+
+func load_run_history() -> void:
+	if not FileAccess.file_exists(RUN_HISTORY_PATH):
+		return
+	var f := FileAccess.open(RUN_HISTORY_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var raw := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(raw)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	var entries = (parsed as Dictionary).get("entries", [])
+	if typeof(entries) == TYPE_ARRAY:
+		run_history = entries
+
+
+func clear_run_history() -> void:
+	run_history.clear()
+	save_run_history()
 
 
 # --- Shop ---

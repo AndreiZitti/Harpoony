@@ -13,4 +13,4 @@ water_top = Color(0.1, 0.4, 0.4, 1)
 water_bottom = Color(0.05, 0.2, 0.25, 1)
 ambient_tint = Color(0.9, 1.0, 0.85, 1)
 background_texture = ExtResource("2")
-spawn_weights = {"lanternfish": 0.3, "mahimahi": 0.2, "grouper": 0.2, "triggerfish": 0.2, "pufferfish": 0.1}
+spawn_weights = {"sardine": 0.25, "bonito": 0.2, "pufferfish": 0.15, "blockfish": 0.2, "grouper": 0.2}

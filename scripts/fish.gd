@@ -24,6 +24,11 @@ var wave_frequency: float = 2.0
 var wave_phase: float = 0.0
 var age: float = 0.0
 var speared: bool = false
+# Spawn-cull guard: don't free a fish for being off-screen until it's been
+# visible at least once. Bonito streaks spawn beyond the cull margin so they
+# can stream in as a dense formation; without this flag, most of the pack
+# would queue_free on the first frame.
+var _was_on_screen: bool = false
 var color: Color = Color(0.7, 0.8, 0.9)
 var school = null
 var slot_offset: Vector2 = Vector2.ZERO
@@ -51,8 +56,51 @@ var spear_check_timer: float = 0.0
 var trigger_alarm_until: float = -1.0
 const TRIGGER_SHIELD_HALF_ANGLE := deg_to_rad(60.0)  # 120° front cone total
 const TRIGGER_ALARM_DURATION := 1.2
+# Blockfish — same defense mechanic, but the shield can spawn on the BACK
+# instead of the front. Player has to read which side is shielded before firing.
+var blockfish_shield_back: bool = false
+const BLOCKFISH_SHIELD_HALF_ANGLE := deg_to_rad(55.0)  # 110° cone, slightly tighter
+const BLOCKFISH_ALARM_DURATION := 1.2
+var blockfish_alarm_until: float = -1.0
 var _flash_tween: Tween = null
 var _squash_tween: Tween = null
+
+# --- Diver avoidance ---
+# Most fish steer gently away from the diver inside this radius. Trophy + apex
+# predators (whitewhale, anglerfish) ignore it so they stay menacing.
+const DIVER_AVOID_RADIUS := 90.0
+const DIVER_AVOID_STRENGTH := 220.0
+static var _diver_cache: Node2D = null
+
+
+static func _get_diver(node: Node) -> Node2D:
+	if _diver_cache != null and is_instance_valid(_diver_cache):
+		return _diver_cache
+	var scene := node.get_tree().current_scene
+	if scene == null:
+		return null
+	var d := scene.get_node_or_null("Diver")
+	if d is Node2D:
+		_diver_cache = d
+		return _diver_cache
+	return null
+
+
+# Avoidance velocity vector for the given world position. Returns ZERO when
+# outside the radius, when the fish is an apex/trophy species, or while diver
+# is hidden (e.g. on the surface). Strength falls off linearly with distance.
+static func diver_avoidance_for(node: Node, pos: Vector2, species_id: String) -> Vector2:
+	if species_id == "whitewhale" or species_id == "anglerfish":
+		return Vector2.ZERO
+	var diver := _get_diver(node)
+	if diver == null or not diver.visible:
+		return Vector2.ZERO
+	var to_fish := pos - diver.global_position
+	var dist := to_fish.length()
+	if dist >= DIVER_AVOID_RADIUS or dist < 0.001:
+		return Vector2.ZERO
+	var falloff := 1.0 - (dist / DIVER_AVOID_RADIUS)
+	return to_fish.normalized() * DIVER_AVOID_STRENGTH * falloff
 
 
 func setup(s: String, start_pos: Vector2, direction_right: bool) -> void:
@@ -147,6 +195,29 @@ func setup(s: String, start_pos: Vector2, direction_right: bool) -> void:
 			wave_frequency = 1.0
 			wave_amplitude = 8.0
 			size_class = SIZE_MEDIUM
+		"bonito":
+			# Fast, telegraphed streaker — committed lane, no avoidance, no wave.
+			# Net catches it (size_small) but only if you fire ahead of the streak.
+			base_value = 8
+			hit_radius = 11.0
+			speed = 280.0
+			color = Color(0.78, 0.88, 1.0)
+			wave_frequency = 0.0
+			wave_amplitude = 0.0
+			size_class = SIZE_SMALL
+		"blockfish":
+			# Directional shield — spawns with the plate on FRONT or BACK at random.
+			# Net never catches (size_large), only catchable on the unshielded side.
+			# Bigger hit_radius than triggerfish so the unshielded half is a
+			# generous target — player's reward for reading the plate correctly.
+			base_value = 35
+			hit_radius = 22.0
+			speed = 70.0
+			color = Color(0.7, 0.6, 0.35)
+			wave_frequency = 1.6
+			wave_amplitude = 8.0
+			size_class = SIZE_LARGE
+			blockfish_shield_back = randf() < 0.5
 	# Apply dev-panel runtime overrides last so they win over the species defaults.
 	if GameData.fish_stat_overrides.has(species):
 		var ov: Dictionary = GameData.fish_stat_overrides[species]
@@ -175,7 +246,10 @@ func _process(delta: float) -> void:
 		_process_species_movement(delta)
 	var viewport = get_viewport_rect().size
 	var margin = 60.0
-	if global_position.x < -margin or global_position.x > viewport.x + margin:
+	var off_x: bool = global_position.x < -margin or global_position.x > viewport.x + margin
+	if not off_x:
+		_was_on_screen = true
+	if _was_on_screen and off_x:
 		queue_free()
 		return
 	queue_redraw()
@@ -191,36 +265,78 @@ func _process_species_movement(delta: float) -> void:
 			_process_squid(delta)
 		"triggerfish":
 			_process_triggerfish(delta)
+		"blockfish":
+			_process_blockfish(delta)
+		"bonito":
+			_process_bonito(delta)
 		_:
 			_process_default(delta)
 
 
+const BONITO_DIVER_RADIUS := 130.0
+const BONITO_DIVER_STRENGTH := 480.0
+
+
+func _process_bonito(delta: float) -> void:
+	# Bonito commits to the lane (no wave, no spear-reaction) but still curves
+	# around the diver — wider radius + stronger force than other fish so the
+	# streak bends cleanly at 280 px/s instead of looking erratic or clipping
+	# through the diver.
+	var avoid := Vector2.ZERO
+	var diver := _get_diver(self)
+	if diver != null and diver.visible:
+		var to_fish := global_position - diver.global_position
+		var dist := to_fish.length()
+		if dist > 0.001 and dist < BONITO_DIVER_RADIUS:
+			var falloff := 1.0 - (dist / BONITO_DIVER_RADIUS)
+			avoid = to_fish.normalized() * BONITO_DIVER_STRENGTH * falloff
+	global_position += (velocity + avoid) * delta
+
+
+# Returns the blockfish's shielded direction in world space (1.0 = right shield, etc).
+func _blockfish_shield_dir() -> float:
+	return forward_sign * (-1.0 if blockfish_shield_back else 1.0)
+
+
+func _process_blockfish(delta: float) -> void:
+	# Edge bounce so it patrols the lane.
+	var viewport = get_viewport_rect().size
+	if global_position.x < 40.0 and forward_sign < 0:
+		forward_sign = 1.0
+	elif global_position.x > viewport.x - 40.0 and forward_sign > 0:
+		forward_sign = -1.0
+	# Alarmed = full speed, otherwise gentle patrol.
+	var s := speed if age < blockfish_alarm_until else speed * 0.85
+	velocity = Vector2(s * forward_sign, 0)
+	var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
+	var avoid = diver_avoidance_for(self, global_position, species)
+	global_position += (velocity + avoid) * delta + Vector2(0, wave_y)
+
+
 func _process_default(delta: float) -> void:
 	var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
-	global_position += velocity * delta + Vector2(0, wave_y)
+	var avoid = diver_avoidance_for(self, global_position, species)
+	global_position += (velocity + avoid) * delta + Vector2(0, wave_y)
 
 
 func _process_pufferfish(delta: float) -> void:
-	# Predictable inflate cycle, with snap-inflation when a spear gets close.
+	# Pure timed cycle — DEFLATED is the catch window. We deliberately do NOT
+	# react to nearby spears; the player learns the rhythm and times the shot.
 	puffer_phase_timer -= delta
-	if puffer_phase == PufferPhase.DEFLATED:
-		spear_check_timer -= delta
-		if spear_check_timer <= 0.0:
-			spear_check_timer = 0.05
-			var sp = _find_flying_spear()
-			if sp and global_position.distance_to(sp.global_position) < PUFFER_THREAT_RADIUS:
-				_set_puffer_phase(PufferPhase.INFLATED)  # snap; skip transition
-		if puffer_phase_timer <= 0.0:
-			_set_puffer_phase(PufferPhase.INFLATING)
+	if puffer_phase == PufferPhase.DEFLATED and puffer_phase_timer <= 0.0:
+		_set_puffer_phase(PufferPhase.INFLATING)
 	elif puffer_phase == PufferPhase.INFLATING and puffer_phase_timer <= 0.0:
 		_set_puffer_phase(PufferPhase.INFLATED)
 	elif puffer_phase == PufferPhase.INFLATED and puffer_phase_timer <= 0.0:
 		_set_puffer_phase(PufferPhase.DEFLATING)
 	elif puffer_phase == PufferPhase.DEFLATING and puffer_phase_timer <= 0.0:
 		_set_puffer_phase(PufferPhase.DEFLATED)
-	# Slow drift, sluggish
+	# Slow drift, sluggish — only avoid the diver while deflated (inflated is committed defense pose).
 	var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
-	global_position += velocity * delta * 0.6 + Vector2(0, wave_y)
+	var avoid = Vector2.ZERO
+	if puffer_phase == PufferPhase.DEFLATED:
+		avoid = diver_avoidance_for(self, global_position, species) * 0.6
+	global_position += (velocity * 0.6 + avoid) * delta + Vector2(0, wave_y)
 
 
 func _set_puffer_phase(phase: int) -> void:
@@ -249,6 +365,7 @@ func _process_mahimahi(delta: float) -> void:
 	mahi_prev_seen_spear = seen
 
 	if age < mahi_burst_until:
+		# Mid-burst: committed move, ignore diver avoidance.
 		var burst_speed = 320.0
 		velocity = velocity.lerp(mahi_burst_dir * burst_speed, 9.0 * delta)
 		global_position += velocity * delta
@@ -257,7 +374,8 @@ func _process_mahimahi(delta: float) -> void:
 		if velocity.length() > speed * 1.2:
 			velocity = Vector2(speed * forward_sign, 0)
 		var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
-		global_position += velocity * delta + Vector2(0, wave_y)
+		var avoid = diver_avoidance_for(self, global_position, species)
+		global_position += (velocity + avoid) * delta + Vector2(0, wave_y)
 
 
 func _process_squid(delta: float) -> void:
@@ -273,7 +391,11 @@ func _process_squid(delta: float) -> void:
 			squid_phase = 0
 			squid_phase_timer = randf_range(1.2, 1.8)
 			velocity = Vector2.ZERO
-	global_position += velocity * delta
+	# Squid in STILL phase nudges away from the diver; in BURST it commits.
+	var avoid = Vector2.ZERO
+	if squid_phase == 0:
+		avoid = diver_avoidance_for(self, global_position, species) * 0.7
+	global_position += (velocity + avoid) * delta
 	if squid_phase == 0:
 		# Subtle bob
 		global_position.y += sin(age * 1.2 + wave_phase) * 8.0 * delta
@@ -303,6 +425,14 @@ func deflects_spear(spear: Node2D) -> bool:
 		# True if spear approaches inside the front cone (i.e. dot is positive enough).
 		var cos_threshold := cos(TRIGGER_SHIELD_HALF_ANGLE)
 		return facing.dot(to_spear.normalized()) >= cos_threshold
+	if species == "blockfish":
+		# Shield direction is randomized per fish — could be front or back.
+		var shield := Vector2(_blockfish_shield_dir(), 0.0)
+		var to_spear_b := spear.global_position - global_position
+		if to_spear_b.length_squared() < 0.0001:
+			return false
+		var cos_thr_b := cos(BLOCKFISH_SHIELD_HALF_ANGLE)
+		return shield.dot(to_spear_b.normalized()) >= cos_thr_b
 	return false
 
 
@@ -314,6 +444,10 @@ func on_bounce(spear: Node2D) -> void:
 			forward_sign = 1.0 if to_spear.x > 0 else -1.0
 			velocity = Vector2(speed * forward_sign, 0)
 		trigger_alarm_until = age + TRIGGER_ALARM_DURATION
+	elif species == "blockfish":
+		# Same alarm tell as triggerfish, but it doesn't flip to face the threat —
+		# the shield direction is fixed, so the player has to read it and reposition.
+		blockfish_alarm_until = age + BLOCKFISH_ALARM_DURATION
 
 
 func _process_triggerfish(delta: float) -> void:
@@ -329,7 +463,8 @@ func _process_triggerfish(delta: float) -> void:
 	var s := speed if age < trigger_alarm_until else speed * 0.85
 	velocity = Vector2(s * forward_sign, 0)
 	var wave_y = sin(age * wave_frequency + wave_phase) * wave_amplitude * delta
-	global_position += velocity * delta + Vector2(0, wave_y)
+	var avoid = diver_avoidance_for(self, global_position, species)
+	global_position += (velocity + avoid) * delta + Vector2(0, wave_y)
 
 
 func _update_collision_radius() -> void:
@@ -525,6 +660,42 @@ func _draw() -> void:
 		# Close the polygon back through center for a fan look.
 		plate_pts.append(Vector2.ZERO)
 		draw_colored_polygon(plate_pts, Color(plate_color.r, plate_color.g, plate_color.b, 0.55))
+	# Blockfish shield plate — extends OUT past the body so the armored side
+	# reads instantly. Larger fan + thicker rim than triggerfish.
+	if species == "blockfish":
+		var alarmed_b := age < blockfish_alarm_until
+		var plate_color_b = Color(1.0, 0.85, 0.3) if alarmed_b else Color(0.55, 0.4, 0.18)
+		var plate_dir: float = _blockfish_shield_dir()
+		# Draw flips with `dir` for sprite-facing, but the SHIELD position depends
+		# on world-space direction (forward_sign × shield_back). Convert to local.
+		var draw_shield_dir: float = plate_dir / dir if dir != 0 else plate_dir
+		# Outer plate (bigger than body to read clearly).
+		var plate_outer: float = hit_radius * 1.25
+		var pts_b := PackedVector2Array()
+		var segs_b := 14
+		for i in segs_b + 1:
+			var t := float(i) / segs_b
+			var a := lerpf(-BLOCKFISH_SHIELD_HALF_ANGLE, BLOCKFISH_SHIELD_HALF_ANGLE, t)
+			var local_dir_b := Vector2(cos(a) * draw_shield_dir, sin(a))
+			pts_b.append(local_dir_b * plate_outer)
+		pts_b.append(Vector2.ZERO)
+		draw_colored_polygon(pts_b, Color(plate_color_b.r, plate_color_b.g, plate_color_b.b, 0.78))
+		# Inner darker layer for depth.
+		var inner_pts := PackedVector2Array()
+		for i in segs_b + 1:
+			var t := float(i) / segs_b
+			var a := lerpf(-BLOCKFISH_SHIELD_HALF_ANGLE * 0.85, BLOCKFISH_SHIELD_HALF_ANGLE * 0.85, t)
+			inner_pts.append(Vector2(cos(a) * draw_shield_dir, sin(a)) * (plate_outer * 0.7))
+		inner_pts.append(Vector2.ZERO)
+		draw_colored_polygon(inner_pts, Color(plate_color_b.r * 0.6, plate_color_b.g * 0.6, plate_color_b.b * 0.6, 0.6))
+		# Studded rim — bigger dots on the outer arc make it read as armor.
+		var rim_color := Color(plate_color_b.r * 1.3, plate_color_b.g * 1.3, plate_color_b.b * 1.3, 0.95)
+		var studs := 7
+		for j in studs:
+			var t2: float = (float(j) + 0.5) / float(studs)
+			var a2: float = lerpf(-BLOCKFISH_SHIELD_HALF_ANGLE * 0.92, BLOCKFISH_SHIELD_HALF_ANGLE * 0.92, t2)
+			var stud_pos := Vector2(cos(a2) * draw_shield_dir, sin(a2)) * (plate_outer * 0.95)
+			draw_circle(stud_pos, 2.4, rim_color)
 
 
 func _draw_squid() -> void:
