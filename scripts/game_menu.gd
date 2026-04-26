@@ -7,6 +7,7 @@ extends CanvasLayer
 
 signal dev_mode_toggled(active: bool)
 signal session_reset_requested
+signal dev_panel_toggle_requested
 
 const DEV_KEYMAP = {
 	KEY_1: "sardine",
@@ -38,6 +39,7 @@ var resume_button: Button
 var reset_button: Button
 var dev_toggle_button: Button
 var cheat_toggle_button: Button
+var dev_panel_button: Button
 var dev_mode_active: bool = false
 var dev_spawn_callable: Callable = Callable()
 
@@ -69,8 +71,8 @@ func _build_ui() -> void:
 func _build_menu_panel() -> PanelContainer:
 	var panel = PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.custom_minimum_size = Vector2(360, 320)
-	panel.position = Vector2(-180, -160)
+	panel.custom_minimum_size = Vector2(360, 380)
+	panel.position = Vector2(-180, -190)
 	var sb = StyleBoxFlat.new()
 	sb.bg_color = Color(0.07, 0.09, 0.14, 0.96)
 	sb.set_corner_radius_all(10)
@@ -110,6 +112,10 @@ func _build_menu_panel() -> PanelContainer:
 
 	dev_toggle_button = _make_menu_button("", _on_dev_toggle_pressed)
 	vbox.add_child(dev_toggle_button)
+
+	# Opens the new full-screen tuning panel (F2 also toggles it).
+	dev_panel_button = _make_menu_button("Open Dev Panel (F2)", _on_dev_panel_pressed)
+	vbox.add_child(dev_panel_button)
 
 	_refresh_button_text()
 	return panel
@@ -242,6 +248,13 @@ func _on_cheat_pressed() -> void:
 
 func _on_dev_toggle_pressed() -> void:
 	_set_dev_mode(not dev_mode_active)
+
+
+# Routes through main.gd which owns the DevPanel CanvasLayer. Closes this
+# pause menu first so the panel isn't trapped under it.
+func _on_dev_panel_pressed() -> void:
+	close()
+	dev_panel_toggle_requested.emit()
 
 
 # Programmatic entry point — lets MainMenu's "Dev Mode" button open the dev

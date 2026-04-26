@@ -11,14 +11,17 @@ const GameMenuScript = preload("res://scripts/game_menu.gd")
 const EndingScreenScript = preload("res://scripts/ending_screen.gd")
 const MainMenuScript = preload("res://scripts/main_menu.gd")
 const SplashScript = preload("res://scripts/splash_screen.gd")
+const DevPanelScript = preload("res://scripts/dev_panel.gd")
 const BoatTexture = preload("res://assets/boat/boat.png")
 const BOAT_DRAW_WIDTH = 240.0  # screen width — bumped from 180 for the new asset
 var _bubble_field: Node2D = null
 var _game_menu: CanvasLayer = null
 var _ending_screen: CanvasLayer = null
+var _dev_panel: CanvasLayer = null
 var _zone_background: Sprite2D = null
 
-const DIVE_TRAVEL_DURATION = 1.5
+# Dive travel duration is tunable from DevPanel; lives on GameData so it
+# persists across reloads of this scene. Resurface stays a const for now.
 const RESURFACE_TRAVEL_DURATION = 1.0
 var travel_timer: float = 0.0
 var _hit_stop_active: bool = false
@@ -70,6 +73,16 @@ func _ready() -> void:
 	_ending_screen.name = "EndingScreen"
 	add_child(_ending_screen)
 	_ending_screen.reset_requested.connect(_on_session_reset)
+
+	# Dev tuning panel — F2 toggles, also reachable from GameMenu's button.
+	_dev_panel = CanvasLayer.new()
+	_dev_panel.set_script(DevPanelScript)
+	_dev_panel.name = "DevPanel"
+	add_child(_dev_panel)
+	if _dev_panel.has_method("set_dev_spawn_callable"):
+		_dev_panel.set_dev_spawn_callable(_dev_spawn)
+	if _game_menu and _game_menu.has_signal("dev_panel_toggle_requested"):
+		_game_menu.dev_panel_toggle_requested.connect(_on_dev_panel_toggle_requested)
 
 	GameData.whitewhale_caught_signal.connect(_on_whitewhale_caught)
 
@@ -147,8 +160,8 @@ func _process(delta: float) -> void:
 		GameData.DiveState.DIVING:
 			travel_timer += delta
 			if diver.has_method("update_dive_travel"):
-				diver.update_dive_travel(clampf(travel_timer / DIVE_TRAVEL_DURATION, 0.0, 1.0))
-			if travel_timer >= DIVE_TRAVEL_DURATION:
+				diver.update_dive_travel(clampf(travel_timer / GameData.dive_travel_duration, 0.0, 1.0))
+			if travel_timer >= GameData.dive_travel_duration:
 				_enter_underwater()
 
 		GameData.DiveState.UNDERWATER:
@@ -186,6 +199,10 @@ func _enter_underwater() -> void:
 
 func _on_oxygen_tick() -> void:
 	if GameData.dive_state != GameData.DiveState.UNDERWATER:
+		return
+	# Dev mode: keep the tank topped up so the dive never auto-ends.
+	if GameData.dev_infinite_oxygen:
+		GameData.set_oxygen(GameData.get_oxygen_capacity())
 		return
 	GameData.set_oxygen(GameData.oxygen - 1.0)
 	if GameData.oxygen <= 0.0:
@@ -227,7 +244,25 @@ func _enter_surface() -> void:
 		diver.set_visible_in_water(false)
 	if hud and hud.has_method("show_dive_summary"):
 		hud.show_dive_summary(GameData.last_dive_cash, GameData.last_dive_fish, GameData.last_dive_shots)
+	# Dev shortcut: skip the upgrade shop and start the next dive immediately.
+	# Deferred so the resurface frame finishes drawing first.
+	if GameData.dev_skip_shop:
+		call_deferred("_on_dive_pressed")
+		return
 	upgrade_shop.show_shop()
+
+
+func _on_dev_panel_toggle_requested() -> void:
+	if _dev_panel and _dev_panel.has_method("toggle"):
+		_dev_panel.toggle()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var kb := event as InputEventKey
+		if kb.keycode == KEY_F2 and _dev_panel and _dev_panel.has_method("toggle"):
+			_dev_panel.toggle()
+			get_viewport().set_input_as_handled()
 
 
 func _on_zone_changed(_zone: ZoneConfig) -> void:

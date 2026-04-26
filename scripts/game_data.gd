@@ -28,6 +28,14 @@ signal dive_number_changed(n: int)
 var cash: float = 0.0
 var cheat_mode: bool = false
 var whitewhale_caught: bool = false
+
+# --- Dev-mode tunables (set via DevPanel; safe defaults preserve old behavior) ---
+var dev_infinite_oxygen: bool = false       # main.gd's oxygen tick respects this
+var dev_skip_shop: bool = false              # main.gd's _enter_surface re-dives instead
+var oxygen_capacity_override: float = -1.0   # ≥0 overrides level-based capacity
+var bag_capacity_override: int = -1          # ≥0 overrides level-based bag size
+var dive_travel_duration: float = 1.5        # was a const in main.gd; tunable here
+
 var zones: Array[ZoneConfig] = []
 var selected_zone_index: int = 0
 var unlocked_zone_index: int = 0  # highest unlocked index (0..zones.size()-1)
@@ -102,6 +110,8 @@ const SURFACE_PALETTE := {
 # --- Derived getters ---
 
 func get_oxygen_capacity() -> float:
+	if oxygen_capacity_override >= 0.0:
+		return oxygen_capacity_override
 	return 10.0 + upgrade_levels["oxygen"] * 2.0
 
 
@@ -110,6 +120,8 @@ func get_spear_count() -> int:
 
 
 func get_bag_capacity() -> int:
+	if bag_capacity_override >= 0:
+		return bag_capacity_override
 	return 3 + upgrade_levels["spear_bag"] * 2
 
 
@@ -551,3 +563,114 @@ func get_upgrade_cost(key: String) -> int:
 func toggle_cheat_mode() -> void:
 	cheat_mode = not cheat_mode
 	cash_changed.emit(cash)
+
+
+# --- Dev: stage presets ---
+#
+# Wipes & rebuilds run state to a known testing baseline. Driven by DevPanel.
+# `stage_index` selects the zone (0..3). `level` is one of:
+#   &"fresh"       — bare minimum: zone unlocked, only the spears reachable at
+#                    that stage available, all upgrade levels at 0, $50 buffer.
+#   &"maxed"       — every upgrade maxed, $5000 wallet, full bag size.
+#   &"whale_ready" — Z4-targeted loadout to test whale fights without grinding.
+func apply_stage_preset(stage_index: int, level: StringName) -> void:
+	# Zone selection + unlock floor.
+	var clamped: int = clampi(stage_index, 0, zones.size() - 1)
+	selected_zone_index = clamped
+	unlocked_zone_index = max(unlocked_zone_index, clamped)
+
+	# Spear unlocks scale with stage: Z1=normal only, Z2=+net, Z3=+heavy, Z4=all.
+	unlocked_spear_types = [&"normal"]
+	if clamped >= 1:
+		unlocked_spear_types.append(&"net")
+	if clamped >= 2:
+		unlocked_spear_types.append(&"heavy")
+	# Whale-ready also unlocks everything regardless of stage_index.
+	if level == &"whale_ready":
+		unlocked_spear_types = [&"normal", &"net", &"heavy"]
+
+	# Reset spear upgrade levels to zero, then apply preset overrides.
+	spear_upgrade_levels.clear()
+	for t in spear_types:
+		var levels := {}
+		for k in t.upgrades.keys():
+			levels[k] = 0
+		spear_upgrade_levels[t.id] = levels
+	var preset_levels := _preset_upgrade_levels(clamped, level)
+	for spear_id in preset_levels.keys():
+		if not spear_upgrade_levels.has(spear_id):
+			continue
+		for k in preset_levels[spear_id].keys():
+			# Clamp to that upgrade's max_level so a preset can't exceed the cap.
+			var t := get_spear_type(spear_id)
+			var cap: int = int(t.upgrades[k]["max_level"]) if t and t.upgrades.has(k) else int(preset_levels[spear_id][k])
+			spear_upgrade_levels[spear_id][k] = min(int(preset_levels[spear_id][k]), cap)
+
+	# Cash + global upgrades.
+	cash = _preset_cash(stage_index, level)
+	upgrade_levels = {
+		"oxygen": _preset_oxygen_lvl(stage_index, level),
+		"spear_bag": _preset_bag_lvl(stage_index, level),
+	}
+
+	# Refill consumables and re-emit signals so HUD/shop refresh.
+	bag_loadout.clear()
+	auto_fill_bag()
+	set_oxygen(get_oxygen_capacity())
+	cash_changed.emit(cash)
+	zone_changed.emit(get_current_zone())
+	for i in range(unlocked_zone_index + 1):
+		zone_unlocked.emit(i)
+	for sid in unlocked_spear_types:
+		spear_type_unlocked.emit(sid)
+	for sid in spear_upgrade_levels.keys():
+		for k in spear_upgrade_levels[sid].keys():
+			spear_upgrade_changed.emit(sid, k, int(spear_upgrade_levels[sid][k]))
+
+
+func _preset_upgrade_levels(_stage: int, level: StringName) -> Dictionary:
+	# Returns a per-spear-id dict of { upgrade_key: level } overrides. Empty
+	# means "leave at zero" (used by &"fresh").
+	if level == &"fresh":
+		return {}
+	if level == &"maxed":
+		var max_lv := {}
+		for t in spear_types:
+			max_lv[t.id] = {}
+			for k in t.upgrades.keys():
+				max_lv[t.id][k] = int(t.upgrades[k]["max_level"])
+		return max_lv
+	if level == &"whale_ready":
+		# Light loadout aimed at the whale fight: heavy carries the work, normal
+		# is a backup. Net is unlocked but not specifically tuned.
+		return {
+			&"heavy": {"speed_mult": 1, "crit_chance": 1, "pierce_count": 1, "value_bonus": 1},
+			&"normal": {"speed_mult": 1, "value_bonus": 1},
+		}
+	return {}
+
+
+func _preset_cash(_stage: int, level: StringName) -> float:
+	if level == &"fresh":
+		return 50.0
+	if level == &"maxed":
+		return 5000.0
+	if level == &"whale_ready":
+		return 500.0
+	return 0.0
+
+
+func _preset_oxygen_lvl(_stage: int, level: StringName) -> int:
+	if level == &"maxed":
+		return int(upgrades["oxygen"]["max_level"])
+	if level == &"whale_ready":
+		return 3
+	return 0
+
+
+func _preset_bag_lvl(_stage: int, level: StringName) -> int:
+	if level == &"maxed":
+		return int(upgrades["spear_bag"]["max_level"])
+	if level == &"whale_ready":
+		return 2
+	return 0
