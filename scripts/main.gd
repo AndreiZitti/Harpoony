@@ -281,16 +281,16 @@ func _draw() -> void:
 	# underwater fill and the procedural gradient is redundant.
 	var has_bg := underwater and zone != null and zone.background_texture != null
 
-	# Sky gradient
-	for i in 8:
-		var t = i / 8.0
-		var y = t * water_surface_y
-		var band_h = water_surface_y / 8.0
-		var c = palette["sky_top"].lerp(palette["sky_bottom"], t)
-		draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
-
-	# Water gradient (skipped when a zone background is showing)
+	# Sky gradient + water gradient + surface line — all skipped when a zone
+	# background is showing, so the bg image reaches edge-to-edge.
 	if not has_bg:
+		for i in 8:
+			var t = i / 8.0
+			var y = t * water_surface_y
+			var band_h = water_surface_y / 8.0
+			var c = palette["sky_top"].lerp(palette["sky_bottom"], t)
+			draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
+
 		for i in 12:
 			var t = i / 12.0
 			var y = water_surface_y + t * (viewport.y - water_surface_y)
@@ -298,8 +298,7 @@ func _draw() -> void:
 			var c = water_top.lerp(water_bottom, t)
 			draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
 
-	# Water surface line
-	draw_line(Vector2(0, water_surface_y), Vector2(viewport.x, water_surface_y), Color(0.6, 0.8, 1.0, 0.4), 1.5)
+		draw_line(Vector2(0, water_surface_y), Vector2(viewport.x, water_surface_y), Color(0.6, 0.8, 1.0, 0.4), 1.5)
 
 	# Boat silhouette (surface / transitioning only)
 	if GameData.dive_state != GameData.DiveState.UNDERWATER:
