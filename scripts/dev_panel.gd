@@ -130,6 +130,10 @@ func _build_ui() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(spacer)
+	var export_btn := Button.new()
+	export_btn.text = "Export to clipboard"
+	export_btn.pressed.connect(func(): _on_export_pressed(export_btn))
+	top.add_child(export_btn)
 	var close_btn := Button.new()
 	close_btn.text = "Close"
 	close_btn.pressed.connect(toggle)
@@ -809,3 +813,80 @@ func _refresh_game_tab_values() -> void:
 		_infinite_oxy_check.set_pressed_no_signal(GameData.dev_infinite_oxygen)
 	if _skip_shop_check:
 		_skip_shop_check.set_pressed_no_signal(GameData.dev_skip_shop)
+
+
+# --- Export ---
+
+func _on_export_pressed(btn: Button) -> void:
+	var snippet := _build_export_snippet()
+	DisplayServer.clipboard_set(snippet)
+	var orig := btn.text
+	btn.text = "Copied ✓"
+	await get_tree().create_timer(1.5).timeout
+	if is_instance_valid(btn):
+		btn.text = orig
+
+
+func _build_export_snippet() -> String:
+	var lines: PackedStringArray = []
+	lines.append("## Dev Tuning Export")
+	lines.append("*Generated from in-game dev panel*")
+	lines.append("")
+	# Game section
+	lines.append("### Game")
+	var ox_ov: float = GameData.oxygen_capacity_override
+	lines.append("- Oxygen capacity (override): %s" % ("none" if ox_ov < 0.0 else str(ox_ov)))
+	var bag_ov: int = GameData.bag_capacity_override
+	lines.append("- Bag capacity (override): %s" % ("none" if bag_ov < 0 else str(bag_ov)))
+	lines.append("- Dive travel duration: %.2f" % GameData.dive_travel_duration)
+	lines.append("- Infinite oxygen: %s" % str(GameData.dev_infinite_oxygen))
+	lines.append("- Skip shop: %s" % str(GameData.dev_skip_shop))
+	lines.append("")
+	# Spears section
+	lines.append("### Spears")
+	lines.append("")
+	for s in GameData.spear_types:
+		lines.append("**%s** (id `%s`)" % [s.display_name, str(s.id)])
+		lines.append("| Field | Value | Default |")
+		lines.append("|---|---|---|")
+		var fresh: SpearType = load("res://data/spears/%s.tres" % str(s.id))
+		for f in [&"speed_mult", &"reel_speed_mult", &"hit_radius_bonus",
+				&"value_bonus", &"pierce_count", &"net_radius",
+				&"net_max_catch", &"crit_chance", &"catches_medium",
+				&"bypasses_defenses"]:
+			var cur = s.get(f)
+			var def = fresh.get(f) if fresh else cur
+			lines.append("| %s | %s | %s |" % [str(f), str(cur), str(def)])
+		# Current upgrade levels
+		var lv_dict: Dictionary = GameData.spear_upgrade_levels.get(s.id, {})
+		var lv_strs: PackedStringArray = []
+		for k in lv_dict.keys():
+			var lvl := int(lv_dict[k])
+			if lvl > 0:
+				lv_strs.append("%s=%d" % [str(k), lvl])
+		var lv_line := "(none)" if lv_strs.is_empty() else ", ".join(lv_strs)
+		lines.append("")
+		lines.append("Upgrade levels: `%s`" % lv_line)
+		lines.append("")
+	# Fish overrides
+	lines.append("### Fish overrides")
+	if GameData.fish_stat_overrides.is_empty():
+		lines.append("*None — all species at defaults.*")
+	else:
+		lines.append("| Species | Field | Override | Default |")
+		lines.append("|---|---|---|---|")
+		for species in GameData.fish_stat_overrides.keys():
+			var ov: Dictionary = GameData.fish_stat_overrides[species]
+			var defaults: Dictionary = _fish_defaults_for(species)
+			for field in ov.keys():
+				var cur = ov[field]
+				var def = defaults.get(field, "?")
+				lines.append("| %s | %s | %s | %s |" % [species, field, str(cur), str(def)])
+	lines.append("")
+	# Footer
+	var zone_name: String = "—"
+	var z = GameData.get_current_zone()
+	if z != null:
+		zone_name = z.display_name
+	lines.append("### Cash: $%d · Zone: %s · Dive #: %d" % [int(GameData.cash), zone_name, GameData.dive_number])
+	return "\n".join(lines)

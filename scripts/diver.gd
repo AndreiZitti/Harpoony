@@ -96,6 +96,9 @@ func _try_fire() -> void:
 	# Round drained — wait for the in-flight spears to return + reshuffle.
 	if GameData.bag_is_exhausted():
 		return
+	# One spear at a time — wait for the previous shot to return.
+	if active_spears.size() > 0:
+		return
 	var dir = Vector2(cos(aim_angle), sin(aim_angle))
 	var spear = SpearScene.instantiate()
 	spear.diver_node = self

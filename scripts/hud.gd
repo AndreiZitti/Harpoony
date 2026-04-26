@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+signal dev_panel_button_pressed
+
 var oxygen_bar: ProgressBar
 var oxygen_label: Label
 var dive_cash_label: Label
@@ -17,6 +19,7 @@ var session_timer_label: Label
 var session_reset_button: Button
 var session_time: float = 0.0
 var dive_counter_label: Label
+var dev_button: Button = null
 
 const SPECIES_COLOR = {
 	"sardine": Color(0.85, 0.92, 1.0),
@@ -208,6 +211,32 @@ func _build_ui() -> void:
 
 	summary_toast = _build_summary_toast()
 	add_child(summary_toast)
+
+	# Floating "DEV" button — top-right corner, only when cheat_mode is on.
+	# Click toggles the dev panel without going through the ESC menu.
+	dev_button = Button.new()
+	dev_button.text = "DEV"
+	dev_button.custom_minimum_size = Vector2(54, 28)
+	dev_button.add_theme_font_size_override("font_size", 12)
+	dev_button.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	var dev_sb := StyleBoxFlat.new()
+	dev_sb.bg_color = Color(0.1, 0.13, 0.18, 0.85)
+	dev_sb.border_color = Color(0.85, 0.78, 0.45, 0.7)
+	dev_sb.set_border_width_all(1)
+	dev_sb.set_corner_radius_all(4)
+	dev_button.add_theme_stylebox_override("normal", dev_sb)
+	# Anchor top-right corner of the viewport.
+	dev_button.anchor_left = 1.0
+	dev_button.anchor_right = 1.0
+	dev_button.anchor_top = 0.0
+	dev_button.anchor_bottom = 0.0
+	dev_button.offset_left = -64
+	dev_button.offset_right = -10
+	dev_button.offset_top = 10
+	dev_button.offset_bottom = 38
+	dev_button.visible = GameData.cheat_mode
+	dev_button.pressed.connect(func(): dev_panel_button_pressed.emit())
+	add_child(dev_button)
 
 
 func spawn_cash_popup(value: int, world_pos: Vector2, species: String) -> void:
@@ -421,6 +450,9 @@ func _process(delta: float) -> void:
 		var mins: int = total / 60
 		var secs: int = total % 60
 		session_timer_label.text = "%d:%02d" % [mins, secs]
+	# Cheat mode can be toggled at runtime — keep the DEV button in sync.
+	if dev_button and dev_button.visible != GameData.cheat_mode:
+		dev_button.visible = GameData.cheat_mode
 
 
 func _on_session_reset() -> void:

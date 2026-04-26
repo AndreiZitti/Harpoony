@@ -86,6 +86,9 @@ func _ready() -> void:
 		_dev_panel.set_dev_spawn_callable(_dev_spawn)
 	if _game_menu and _game_menu.has_signal("dev_panel_toggle_requested"):
 		_game_menu.dev_panel_toggle_requested.connect(_on_dev_panel_toggle_requested)
+	# HUD's floating DEV button (visible in cheat mode) opens the same panel.
+	if hud and hud.has_signal("dev_panel_button_pressed"):
+		hud.dev_panel_button_pressed.connect(_on_dev_panel_toggle_requested)
 
 	GameData.whitewhale_caught_signal.connect(_on_whitewhale_caught)
 
