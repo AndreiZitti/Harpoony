@@ -14,6 +14,7 @@ const SplashScript = preload("res://scripts/splash_screen.gd")
 var _bubble_field: Node2D = null
 var _game_menu: CanvasLayer = null
 var _ending_screen: CanvasLayer = null
+var _zone_background: Sprite2D = null
 
 const DIVE_TRAVEL_DURATION = 1.5
 const RESURFACE_TRAVEL_DURATION = 1.0
@@ -30,6 +31,20 @@ func _ready() -> void:
 	GameData.set_dive_state(GameData.DiveState.SURFACE)
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(false)
+
+	# Zone background sprite — sits behind everything else, only shown
+	# underwater when the current zone has a background_texture set.
+	_zone_background = Sprite2D.new()
+	_zone_background.name = "ZoneBackground"
+	_zone_background.centered = false
+	_zone_background.position = Vector2.ZERO
+	_zone_background.z_index = -10
+	_zone_background.visible = false
+	add_child(_zone_background)
+	move_child(_zone_background, 0)
+	GameData.zone_changed.connect(_on_zone_changed)
+	GameData.dive_state_changed.connect(_on_dive_state_changed)
+	_refresh_zone_background()
 
 	# BubbleField sits behind the diver/fish but on top of the water gradient.
 	_bubble_field = Node2D.new()
@@ -212,21 +227,59 @@ func _enter_surface() -> void:
 	upgrade_shop.show_shop()
 
 
+func _on_zone_changed(_zone: ZoneConfig) -> void:
+	_refresh_zone_background()
+
+
+func _on_dive_state_changed(_state: int) -> void:
+	_refresh_zone_background()
+
+
+func _refresh_zone_background() -> void:
+	if _zone_background == null:
+		return
+	var zone: ZoneConfig = GameData.get_current_zone()
+	var underwater := GameData.dive_state != GameData.DiveState.SURFACE
+	if zone == null or zone.background_texture == null or not underwater:
+		_zone_background.visible = false
+		return
+	_zone_background.texture = zone.background_texture
+	_zone_background.visible = true
+	# Cover-fit: scale so the texture always fills the viewport on both axes;
+	# overflow gets clipped. Wider-than-tall images fit height with horizontal
+	# crop; taller-than-wide images fit width with top/bottom crop.
+	var viewport := get_viewport_rect().size
+	var tex_size := zone.background_texture.get_size()
+	if tex_size.x <= 0 or tex_size.y <= 0:
+		return
+	var scale_x: float = viewport.x / tex_size.x
+	var scale_y: float = viewport.y / tex_size.y
+	var s: float = max(scale_x, scale_y)
+	_zone_background.scale = Vector2(s, s)
+	var scaled := tex_size * s
+	_zone_background.position = (viewport - scaled) * 0.5
+
+
 func _draw() -> void:
 	var viewport = get_viewport_rect().size
 	var water_surface_y = 140.0
 	# Surface uses a fixed palette. Underwater pulls colors from the current zone.
 	var palette = GameData.SURFACE_PALETTE
 	var underwater = GameData.dive_state != GameData.DiveState.SURFACE
+	var zone: ZoneConfig = null
 	var water_top: Color
 	var water_bottom: Color
 	if underwater:
-		var zone: ZoneConfig = GameData.get_current_zone()
+		zone = GameData.get_current_zone()
 		water_top = zone.water_top
 		water_bottom = zone.water_bottom
 	else:
 		water_top = palette["water_top"]
 		water_bottom = palette["water_bottom"]
+
+	# When a zone supplies a hand-drawn background, the Sprite2D handles the
+	# underwater fill and the procedural gradient is redundant.
+	var has_bg := underwater and zone != null and zone.background_texture != null
 
 	# Sky gradient
 	for i in 8:
@@ -236,13 +289,14 @@ func _draw() -> void:
 		var c = palette["sky_top"].lerp(palette["sky_bottom"], t)
 		draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
 
-	# Water gradient
-	for i in 12:
-		var t = i / 12.0
-		var y = water_surface_y + t * (viewport.y - water_surface_y)
-		var band_h = (viewport.y - water_surface_y) / 12.0
-		var c = water_top.lerp(water_bottom, t)
-		draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
+	# Water gradient (skipped when a zone background is showing)
+	if not has_bg:
+		for i in 12:
+			var t = i / 12.0
+			var y = water_surface_y + t * (viewport.y - water_surface_y)
+			var band_h = (viewport.y - water_surface_y) / 12.0
+			var c = water_top.lerp(water_bottom, t)
+			draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
 
 	# Water surface line
 	draw_line(Vector2(0, water_surface_y), Vector2(viewport.x, water_surface_y), Color(0.6, 0.8, 1.0, 0.4), 1.5)
