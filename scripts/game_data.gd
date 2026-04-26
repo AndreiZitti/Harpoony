@@ -75,10 +75,8 @@ var upgrades: Dictionary = {
 const ZONE_PATHS = [
 	"res://data/zones/01_reef.tres",
 	"res://data/zones/02_kelp.tres",
-	"res://data/zones/03_twilight.tres",
-	"res://data/zones/04_midnight.tres",
-	"res://data/zones/05_abyss.tres",
-	"res://data/zones/06_trench.tres",
+	"res://data/zones/03_open_blue.tres",
+	"res://data/zones/04_abyss.tres",
 ]
 
 # Spear types loaded from data/spears/*.tres
