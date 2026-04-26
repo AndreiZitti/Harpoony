@@ -155,10 +155,11 @@ func _net_capture(first_fish: Fish) -> void:
 	var radius: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
 	var max_catch: int = int(GameData.get_effective_spear_stat(current_type_id, "net_max_catch"))
 	attached_fish_array.clear()
-	# Always include the first fish that triggered the net.
-	first_fish.on_speared(self)
-	attached_fish_array.append(first_fish)
-	_spawn_hit_burst(first_fish.global_position, first_fish.color)
+	# Include the first fish that triggered the net only if it matches the size gate.
+	if current_type.catch_size_classes.has(first_fish.size_class):
+		first_fish.on_speared(self)
+		attached_fish_array.append(first_fish)
+		_spawn_hit_burst(first_fish.global_position, first_fish.color)
 	# Sweep nearby fish.
 	var center := global_position
 	var r2 := radius * radius
@@ -170,6 +171,8 @@ func _net_capture(first_fish: Fish) -> void:
 			continue
 		var f := n as Fish
 		if f == null or not is_instance_valid(f) or f.speared:
+			continue
+		if not current_type.catch_size_classes.has(f.size_class):
 			continue
 		if f.global_position.distance_squared_to(center) <= r2:
 			f.on_speared(self)
