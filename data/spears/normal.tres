@@ -36,15 +36,6 @@ upgrades = {
 	"field": "hit_radius_bonus",
 	"step": 8.0
 },
-"pierce_count": {
-	"name": "Razor Edge",
-	"description": "Each level: +1 fish pierced per shot. Pierced fish award cash inline; the spear no longer reels.",
-	"icon": "✦",
-	"max_level": 3,
-	"costs": [80, 220, 600],
-	"field": "pierce_count",
-	"step": 1
-},
 "value_bonus": {
 	"name": "Polished Tip",
 	"description": "+10% cash on every hit.",

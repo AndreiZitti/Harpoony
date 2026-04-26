@@ -45,5 +45,14 @@ upgrades = {
 	"costs": [200, 600, 1500],
 	"field": "value_bonus",
 	"step": 0.15
+},
+"pierce_count": {
+	"name": "Drill Tip",
+	"description": "+1 fish pierced per shot. Plows through stacked targets.",
+	"icon": "✦",
+	"max_level": 2,
+	"costs": [400, 1200],
+	"field": "pierce_count",
+	"step": 1
 }
 }
