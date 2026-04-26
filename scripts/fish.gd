@@ -130,6 +130,15 @@ func setup(s: String, start_pos: Vector2, direction_right: bool) -> void:
 			speed = 280.0
 			color = Color(0.2, 0.3, 0.55)
 			wave_frequency = 1.0
+			size_class = SIZE_LARGE
+		"jellyfish":
+			base_value = 18
+			hit_radius = 16.0
+			speed = 30.0
+			color = Color(0.85, 0.7, 0.95, 0.85)
+			wave_frequency = 1.0
+			wave_amplitude = 8.0
+			size_class = SIZE_MEDIUM
 	forward_sign = 1.0 if direction_right else -1.0
 	velocity = Vector2(speed * forward_sign, 0)
 	global_position = start_pos
@@ -261,6 +270,8 @@ func _is_inflated() -> bool:
 # Returns true if this fish should deflect the given spear (defense like puffer
 # inflation or triggerfish front-cone). Spears with bypasses_defenses skip the call.
 func deflects_spear(spear: Node2D) -> bool:
+	if species == "jellyfish":
+		return not spear.spear_type_breaks_defenses()
 	if species == "pufferfish":
 		# Only the fully-inflated phase bounces; the inflating transition is just a tell.
 		return puffer_phase == PufferPhase.INFLATED
@@ -407,6 +418,9 @@ func _draw() -> void:
 	if species == "anglerfish":
 		_draw_anglerfish()
 		return
+	if species == "jellyfish":
+		_draw_jellyfish()
+		return
 	var body_color = color
 	# Lock facing once speared so external rotation orients the fish
 	var facing_right = true if speared else velocity.x >= 0
@@ -525,6 +539,39 @@ func _draw_squid() -> void:
 	# Eye
 	draw_circle(Vector2(body_len * 0.25, -body_h * 0.18), 1.6, Color.BLACK)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_jellyfish() -> void:
+	# Translucent dome with wavy tendrils — drifts gently regardless of facing.
+	var body_color = color
+	var r = hit_radius
+	# Dome (semi-circle, opening downward).
+	var dome_pts = PackedVector2Array()
+	var segs: int = 14
+	for i in segs + 1:
+		var t: float = float(i) / float(segs)
+		var a: float = lerpf(PI, TAU, t)  # PI..TAU = upper half
+		dome_pts.append(Vector2(cos(a) * r, sin(a) * r * 0.9))
+	# Close the polygon along the bottom.
+	dome_pts.append(Vector2(r, 0))
+	dome_pts.append(Vector2(-r, 0))
+	draw_colored_polygon(dome_pts, body_color)
+	# Inner highlight rim across the top.
+	draw_arc(Vector2.ZERO, r * 0.8, PI + 0.3, TAU - 0.3, 12, body_color.lightened(0.3), 1.2)
+	# Tendrils — 4 wavy lines dangling below.
+	var tendril_color := Color(body_color.r, body_color.g, body_color.b, 0.7)
+	var n_tendrils: int = 4
+	for i in n_tendrils:
+		var x_off: float = lerpf(-r * 0.7, r * 0.7, float(i) / float(n_tendrils - 1))
+		var prev := Vector2(x_off, 0)
+		var pieces: int = 5
+		for j in pieces:
+			var t: float = float(j + 1) / float(pieces)
+			var y: float = t * r * 1.4
+			var sway: float = sin(age * 2.0 + wave_phase + t * 3.0 + float(i) * 0.5) * 3.0
+			var next := Vector2(x_off + sway, y)
+			draw_line(prev, next, tendril_color, 1.3)
+			prev = next
 
 
 func _draw_anglerfish() -> void:

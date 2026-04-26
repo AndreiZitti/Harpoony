@@ -49,6 +49,10 @@ func _pull_type_for_fire() -> bool:
 	return true
 
 
+func spear_type_breaks_defenses() -> bool:
+	return current_type != null and current_type.bypasses_defenses
+
+
 func _apply_type_visuals() -> void:
 	# Per-instance shape so hit-radius upgrades don't share radius globally.
 	var circle := CircleShape2D.new()
