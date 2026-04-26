@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"marlin"
+display_name = "Marlin"
+description = "A blue lightning bolt of the open ocean. Fastest fish in the sea — strike fast or it's gone."
+base_value = 60
+size_class = &"large"
+hit_radius = 22.0
+color = Color(0.2, 0.3, 0.55, 1)
+found_in_zone = &"open_blue"
+recommended_spear = &"heavy"
+behavior_notes = "Crosses the screen at extreme speed. Lead the shot — your Normal spear will lag behind."

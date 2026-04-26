@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"mahimahi"
+display_name = "Mahi-mahi"
+description = "A vivid, fast-fading goldfish of the open water. Travels in small pods and rewards a steady aim."
+base_value = 25
+size_class = &"medium"
+hit_radius = 16.0
+color = Color(0.95, 0.7, 0.2, 1)
+found_in_zone = &"open_blue"
+recommended_spear = &"normal"
+behavior_notes = "Spawns in pods of two or three. A clean Normal spear takes one cleanly; the Net struggles with their spread."

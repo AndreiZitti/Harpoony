@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"tuna"
+display_name = "Tuna"
+description = "A muscular open-ocean cruiser. Big body, big payout — but you'll need a spear that can punch through."
+base_value = 40
+size_class = &"large"
+hit_radius = 24.0
+color = Color(0.4, 0.5, 0.7, 1)
+found_in_zone = &"open_blue"
+recommended_spear = &"heavy"
+behavior_notes = "The Net cannot hold a tuna. The Heavy spear lands clean hits and rewards dead-center crits."

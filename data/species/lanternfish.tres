@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"lanternfish"
+display_name = "Lanternfish"
+description = "A small deep-water schooler with bioluminescent flecks. Gathers in dense, shifting clouds."
+base_value = 5
+size_class = &"small"
+hit_radius = 9.0
+color = Color(0.4, 0.5, 0.75, 1)
+found_in_zone = &"open_blue"
+recommended_spear = &"net"
+behavior_notes = "Tighter clusters than sardines. The Net is by far the most efficient — single shots barely cover the spear cost."

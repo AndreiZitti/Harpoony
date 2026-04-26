@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"blockfish"
+display_name = "Blockfish"
+description = "Carries a heavy shield plate on one side — front or back at random. Hit the wrong side and your spear bounces clean."
+base_value = 35
+size_class = &"large"
+hit_radius = 22.0
+color = Color(0.7, 0.6, 0.35, 1)
+found_in_zone = &"kelp"
+recommended_spear = &"heavy"
+behavior_notes = "Read the plate before firing. The Heavy spear bypasses the shield outright. The Net never holds a Blockfish — it slips out."

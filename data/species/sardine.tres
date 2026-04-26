@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"sardine"
+display_name = "Sardine"
+description = "A small silver baitfish that travels in tight schools. Cheap on its own, but a full school is a payday."
+base_value = 4
+size_class = &"small"
+hit_radius = 10.0
+color = Color(0.75, 0.85, 0.95, 1)
+found_in_zone = &"reef"
+recommended_spear = &"net"
+behavior_notes = "Schools roll one of three patterns: tight, loose, or wavy. The Net spear hauls in several at once — a single straight spear is a poor return."

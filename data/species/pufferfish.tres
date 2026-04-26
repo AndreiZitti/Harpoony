@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"pufferfish"
+display_name = "Pufferfish"
+description = "A spiny balloon. Catchable only while it's deflated — once it puffs up, normal spears bounce right off."
+base_value = 12
+size_class = &"medium"
+hit_radius = 13.0
+color = Color(0.95, 0.9, 0.45, 1)
+found_in_zone = &"reef"
+recommended_spear = &"normal"
+behavior_notes = "Cycles between deflated (~3s, vulnerable) and inflated (defensive). Time your shot for the deflated phase, or rely on a Heavy spear that bypasses defenses."

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"jellyfish"
+display_name = "Jellyfish"
+description = "A drifting bell of stinging tendrils. Bright, slow, and worth more than it looks."
+base_value = 18
+size_class = &"medium"
+hit_radius = 16.0
+color = Color(0.85, 0.7, 0.95, 0.85)
+found_in_zone = &"open_blue"
+recommended_spear = &"normal"
+behavior_notes = "Floats with a slow vertical wave. No hard defenses, but the diver gives it a wide berth."

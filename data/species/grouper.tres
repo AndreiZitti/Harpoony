@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"grouper"
+display_name = "Grouper"
+description = "A heavy-bodied reef dweller with a slow, predictable cruise. Reliable bread-and-butter cash for the early zones."
+base_value = 15
+size_class = &"medium"
+hit_radius = 18.0
+color = Color(0.8, 0.6, 0.3, 1)
+found_in_zone = &"reef"
+recommended_spear = &"normal"
+behavior_notes = "Drifts in straight lines with a gentle wave. No defenses, just a clean target."

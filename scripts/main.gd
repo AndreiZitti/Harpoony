@@ -13,6 +13,7 @@ const MainMenuScript = preload("res://scripts/main_menu.gd")
 const SplashScript = preload("res://scripts/splash_screen.gd")
 const DevPanelScript = preload("res://scripts/dev_panel.gd")
 const DiveSummaryScript = preload("res://scripts/dive_summary.gd")
+const BestiaryScript = preload("res://scripts/bestiary.gd")
 const BoatTexture = preload("res://assets/boat/boat.png")
 const BOAT_DRAW_WIDTH = 240.0  # screen width — bumped from 180 for the new asset
 var _bubble_field: Node2D = null
@@ -20,6 +21,7 @@ var _game_menu: CanvasLayer = null
 var _ending_screen: CanvasLayer = null
 var _dev_panel: CanvasLayer = null
 var _dive_summary: CanvasLayer = null
+var _bestiary: CanvasLayer = null
 var _zone_background: Sprite2D = null
 
 # Dive travel duration is tunable from DevPanel; lives on GameData so it
@@ -27,6 +29,12 @@ var _zone_background: Sprite2D = null
 const RESURFACE_TRAVEL_DURATION = 1.0
 var travel_timer: float = 0.0
 var _hit_stop_active: bool = false
+
+# Boat horizontal offset for the title-screen "set sail" intro animation.
+# main.gd._draw renders the boat at viewport.x*0.5 + _boat_offset_x. Tweened by
+# slide_boat_for_intro() and reset by reset_boat_position().
+var _boat_offset_x: float = 0.0
+const BOAT_INTRO_SLIDE_DURATION = 1.0
 
 
 func _ready() -> void:
@@ -70,6 +78,7 @@ func _ready() -> void:
 	add_child(_game_menu)
 	_game_menu.set_dev_spawn_callable(_dev_spawn)
 	_game_menu.session_reset_requested.connect(_on_session_reset)
+	_game_menu.bestiary_pressed.connect(_on_bestiary_requested)
 
 	# Ending screen — celebration overlay on the first White Whale catch.
 	_ending_screen = CanvasLayer.new()
@@ -102,7 +111,18 @@ func _ready() -> void:
 	add_child(_dive_summary)
 	_dive_summary.continue_requested.connect(_on_dive_summary_continue)
 
+	# Bestiary — fish codex with locked-silhouette discovery. Opened from the
+	# main menu, the upgrade shop, and the pause menu via show_bestiary().
+	_bestiary = CanvasLayer.new()
+	_bestiary.set_script(BestiaryScript)
+	_bestiary.name = "Bestiary"
+	add_child(_bestiary)
+
 	# Opening flow: MainMenu → (Splash on Normal) → UpgradeShop.
+	# HUD is hidden on the title screen so the boot frame stays clean — restored
+	# when a mode is selected.
+	if hud:
+		hud.visible = false
 	_show_main_menu()
 
 
@@ -112,6 +132,12 @@ func _show_main_menu() -> void:
 	menu.name = "MainMenu"
 	add_child(menu)
 	menu.mode_selected.connect(_on_mode_selected)
+	menu.bestiary_pressed.connect(_on_bestiary_requested)
+
+
+func _on_bestiary_requested() -> void:
+	if _bestiary and _bestiary.has_method("show_bestiary"):
+		_bestiary.show_bestiary()
 
 
 func _on_mode_selected(mode: StringName) -> void:
@@ -131,15 +157,38 @@ func _on_mode_selected(mode: StringName) -> void:
 		# Auto-open the dev panel — that's the dev-mode entry point now.
 		if _dev_panel and _dev_panel.has_method("toggle"):
 			_dev_panel.toggle()
-		# Skip the shop and dive straight away (skip_shop will keep us looping).
+		# Skip the boat slide for dev — straight to the dive loop.
+		if hud:
+			hud.visible = true
 		_on_dive_pressed()
 		return
-	# Normal mode: play splash, then open shop.
-	var splash := CanvasLayer.new()
-	splash.set_script(SplashScript)
-	splash.name = "Splash"
-	add_child(splash)
-	splash.finished.connect(func(): upgrade_shop.show_shop())
+	# Normal mode: boat sails right, splash plays, boat resets, shop opens.
+	slide_boat_for_intro(func():
+		var splash := CanvasLayer.new()
+		splash.set_script(SplashScript)
+		splash.name = "Splash"
+		add_child(splash)
+		splash.finished.connect(func():
+			reset_boat_position()
+			if hud:
+				hud.visible = true
+			upgrade_shop.show_shop()
+		)
+	)
+
+
+func slide_boat_for_intro(on_finished: Callable) -> void:
+	var viewport := get_viewport_rect().size
+	var target: float = viewport.x * 0.6 + BOAT_DRAW_WIDTH
+	var tw := create_tween()
+	tw.tween_property(self, "_boat_offset_x", target, BOAT_INTRO_SLIDE_DURATION) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tw.tween_callback(on_finished)
+
+
+func reset_boat_position() -> void:
+	_boat_offset_x = 0.0
+	queue_redraw()
 
 
 func _dev_spawn(species: String) -> void:
@@ -165,6 +214,7 @@ func _on_session_reset() -> void:
 	GameData.bag_loadout.clear()
 	GameData.auto_fill_bag()
 	GameData.clear_run_history()
+	GameData.clear_discovered_species()
 	GameData.cash_changed.emit(0.0)
 	GameData.zone_changed.emit(GameData.get_current_zone())
 	# If a dive is in progress, abort cleanly back to surface.
@@ -365,9 +415,10 @@ func _draw() -> void:
 
 	# Boat (surface / transitioning only). Sprite replaces the old polygon —
 	# zone selection now lives in the upgrade shop, so the procedural depth
-	# lever previously drawn on the deck is gone.
+	# lever previously drawn on the deck is gone. _boat_offset_x is tweened by
+	# slide_boat_for_intro to "set sail" off the right edge on Start Run.
 	if GameData.dive_state != GameData.DiveState.UNDERWATER:
-		var boat_x: float = viewport.x * 0.5
+		var boat_x: float = viewport.x * 0.5 + _boat_offset_x
 		var boat_y: float = water_surface_y
 		var tex_size := BoatTexture.get_size()
 		var aspect: float = tex_size.y / tex_size.x

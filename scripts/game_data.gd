@@ -3,6 +3,7 @@ extends Node
 const DEV_TUNING_PATH := "user://dev_tuning.json"
 const RUN_HISTORY_PATH := "user://run_history.json"
 const RUN_HISTORY_MAX := 200  # cap so the file doesn't grow forever
+const DISCOVERED_SPECIES_PATH := "user://discovered_species.json"
 var _dev_save_timer: Timer = null
 
 
@@ -11,7 +12,9 @@ func _ready() -> void:
 		assert(key in upgrade_levels, "upgrade_levels missing key: %s" % key)
 	_load_zones()
 	_load_spear_types()
+	_load_species()
 	load_run_history()
+	load_discovered_species()
 	set_oxygen(get_oxygen_capacity())
 	set_dive_state(DiveState.SURFACE)
 
@@ -29,6 +32,7 @@ signal spear_upgrade_changed(id: StringName, key: String, level: int)
 signal bag_loadout_changed
 signal whitewhale_caught_signal
 signal dive_number_changed(n: int)
+signal species_discovered(id: StringName)
 
 # Persistent state
 var cash: float = 0.0
@@ -128,6 +132,30 @@ const SPEAR_TYPE_PATHS = [
 	"res://data/spears/net.tres",
 	"res://data/spears/heavy.tres",
 ]
+
+# Species data loaded from data/species/*.tres — single source of truth for
+# display name, description, recommended spear, and the bestiary registry.
+const SPECIES_PATHS = [
+	"res://data/species/sardine.tres",
+	"res://data/species/grouper.tres",
+	"res://data/species/tuna.tres",
+	"res://data/species/pufferfish.tres",
+	"res://data/species/mahimahi.tres",
+	"res://data/species/squid.tres",
+	"res://data/species/lanternfish.tres",
+	"res://data/species/anglerfish.tres",
+	"res://data/species/triggerfish.tres",
+	"res://data/species/marlin.tres",
+	"res://data/species/whitewhale.tres",
+	"res://data/species/jellyfish.tres",
+	"res://data/species/bonito.tres",
+	"res://data/species/blockfish.tres",
+]
+var species_list: Array[SpeciesData] = []
+var species_by_id: Dictionary = {}  # StringName -> SpeciesData
+# Discovered species map: keys are species id (String), value = first-caught
+# dive number. Persists across sessions; cleared by Reset Session.
+var discovered_species: Dictionary = {}
 
 # Surface palette — single fixed look (day/night phases removed).
 const SURFACE_PALETTE := {
@@ -249,6 +277,65 @@ func register_miss() -> void:
 	pass
 
 
+# --- Species ---
+
+func _load_species() -> void:
+	species_list.clear()
+	species_by_id.clear()
+	for path in SPECIES_PATHS:
+		var s: SpeciesData = load(path)
+		assert(s != null, "Failed to load species: %s" % path)
+		species_list.append(s)
+		species_by_id[s.id] = s
+
+
+func get_species(id: StringName) -> SpeciesData:
+	return species_by_id.get(id, null)
+
+
+func get_all_species() -> Array[SpeciesData]:
+	return species_list
+
+
+func is_species_discovered(id: StringName) -> bool:
+	return discovered_species.has(str(id))
+
+
+func mark_species_discovered(id: StringName) -> void:
+	var key := str(id)
+	if discovered_species.has(key):
+		return
+	discovered_species[key] = dive_number
+	species_discovered.emit(id)
+	save_discovered_species()
+
+
+func save_discovered_species() -> void:
+	var f := FileAccess.open(DISCOVERED_SPECIES_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify({"version": 1, "discovered": discovered_species}, "  "))
+
+
+func load_discovered_species() -> void:
+	if not FileAccess.file_exists(DISCOVERED_SPECIES_PATH):
+		return
+	var f := FileAccess.open(DISCOVERED_SPECIES_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var raw = JSON.parse_string(f.get_as_text())
+	if not (raw is Dictionary):
+		return
+	var d = raw.get("discovered", {})
+	if d is Dictionary:
+		discovered_species = d
+
+
+func clear_discovered_species() -> void:
+	discovered_species.clear()
+	save_discovered_species()
+
+
 # --- Spear types ---
 
 func _load_spear_types() -> void:
@@ -306,6 +393,8 @@ func get_spear_upgrade_level(id: StringName, key: String) -> int:
 
 
 func can_buy_spear_upgrade(id: StringName, key: String) -> bool:
+	if not is_spear_type_unlocked(id):
+		return false
 	var t := get_spear_type(id)
 	if t == null or not t.upgrades.has(key):
 		return false
@@ -313,9 +402,27 @@ func can_buy_spear_upgrade(id: StringName, key: String) -> bool:
 	var level := get_spear_upgrade_level(id, key)
 	if level >= int(def["max_level"]):
 		return false
+	if not are_spear_upgrade_parents_satisfied(id, key):
+		return false
 	if cheat_mode:
 		return true
 	return cash >= int((def["costs"] as Array)[level])
+
+
+# True when every parent upgrade key listed in the def has at least level 1.
+# Empty/missing parent list = always satisfied (root-tier nodes).
+func are_spear_upgrade_parents_satisfied(id: StringName, key: String) -> bool:
+	var t := get_spear_type(id)
+	if t == null or not t.upgrades.has(key):
+		return false
+	var def: Dictionary = t.upgrades[key]
+	var parents = def.get("parents", [])
+	if typeof(parents) != TYPE_ARRAY:
+		return true
+	for p in parents:
+		if get_spear_upgrade_level(id, str(p)) < 1:
+			return false
+	return true
 
 
 func buy_spear_upgrade(id: StringName, key: String) -> bool:
@@ -499,6 +606,7 @@ func note_fish_caught(spear_id: StringName = &"", species: StringName = &"", val
 		entry["count"] = int(entry.get("count", 0)) + 1
 		entry["value"] = int(entry.get("value", 0)) + value
 		dive_catches_by_fish[fk] = entry
+		mark_species_discovered(species)
 
 
 # Returns the remaining spear ids in the current round (no wrap). Empty when the

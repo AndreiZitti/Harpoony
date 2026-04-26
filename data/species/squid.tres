@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"squid"
+display_name = "Squid"
+description = "A drifting cephalopod that pulses through the dark. Releases an ink cloud when startled."
+base_value = 18
+size_class = &"medium"
+hit_radius = 13.0
+color = Color(0.7, 0.35, 0.75, 1)
+found_in_zone = &"open_blue"
+recommended_spear = &"normal"
+behavior_notes = "Mostly stationary, occasionally jets sideways. Ink obscures nearby vision briefly — strike before it spooks."

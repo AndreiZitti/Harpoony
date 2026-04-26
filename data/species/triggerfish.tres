@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"triggerfish"
+display_name = "Triggerfish"
+description = "A wary mid-depth fish with armor-plated scales. It will turn to face threats, presenting its tougher side."
+base_value = 30
+size_class = &"large"
+hit_radius = 16.0
+color = Color(0.55, 0.65, 0.85, 1)
+found_in_zone = &"abyss"
+recommended_spear = &"heavy"
+behavior_notes = "Reorients toward incoming spears. The Heavy spear bypasses its defense; Normal shots can deflect off the armored side."

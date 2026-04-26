@@ -8,6 +8,7 @@ extends CanvasLayer
 signal dev_mode_toggled(active: bool)
 signal session_reset_requested
 signal dev_panel_toggle_requested
+signal bestiary_pressed
 
 const DEV_KEYMAP = {
 	KEY_1: "sardine",
@@ -107,6 +108,9 @@ func _build_menu_panel() -> PanelContainer:
 
 	resume_button = _make_menu_button("Resume", close)
 	vbox.add_child(resume_button)
+
+	var bestiary_button := _make_menu_button("Bestiary", _on_bestiary_pressed)
+	vbox.add_child(bestiary_button)
 
 	reset_button = _make_menu_button("Reset Session", _on_reset_pressed)
 	vbox.add_child(reset_button)
@@ -252,6 +256,12 @@ func _on_cheat_pressed() -> void:
 
 func _on_dev_toggle_pressed() -> void:
 	_set_dev_mode(not dev_mode_active)
+
+
+# Bestiary opens on top of the pause menu (layer 85 vs 60). Tree stays paused;
+# closing the bestiary brings the player back to the pause menu, not gameplay.
+func _on_bestiary_pressed() -> void:
+	bestiary_pressed.emit()
 
 
 # Routes through main.gd which owns the DevPanel CanvasLayer. Closes this

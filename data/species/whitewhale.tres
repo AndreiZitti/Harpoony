@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"whitewhale"
+display_name = "White Whale"
+description = "The legend of the abyss. One catch ends the campaign — and pays for everything you ever wanted."
+base_value = 800
+size_class = &"trophy"
+hit_radius = 40.0
+color = Color(0.92, 0.94, 0.96, 1)
+found_in_zone = &"abyss"
+recommended_spear = &"heavy"
+behavior_notes = "Trophy: only one ever appears on screen. The diver does not scare it. Catching it triggers the ending."

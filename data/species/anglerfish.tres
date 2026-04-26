@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"anglerfish"
+display_name = "Anglerfish"
+description = "A dark, lumbering predator from the deep. Slow as silt, but you need to find it first."
+base_value = 50
+size_class = &"medium"
+hit_radius = 16.0
+color = Color(0.13, 0.08, 0.18, 1)
+found_in_zone = &"abyss"
+recommended_spear = &"normal"
+behavior_notes = "Barely moves. The diver doesn't trigger its avoidance — line up the shot at leisure."

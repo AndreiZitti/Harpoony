@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpeciesData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/species_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"bonito"
+display_name = "Bonito"
+description = "A streamlined streaker that crosses the kelp in a tight pack. Telegraphed by a bubble plume — read the lane."
+base_value = 8
+size_class = &"small"
+hit_radius = 11.0
+color = Color(0.78, 0.88, 1.0, 1)
+found_in_zone = &"kelp"
+recommended_spear = &"net"
+behavior_notes = "A bubble plume reveals the lane two seconds before the streak arrives. The Net catches several at once if you fire ahead of the pack."
