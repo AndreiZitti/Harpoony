@@ -26,6 +26,8 @@ extends Resource
 @export_range(0.0, 200.0, 1.0) var net_radius: float = 0.0
 @export_range(1, 12, 1) var net_max_catch: int = 1
 @export var catch_size_classes: Array[StringName] = [&"small", &"medium", &"large", &"trophy"]
+@export var catches_medium: int = 0   # set to 1 by Bigger Hoop upgrade — extends Net catch to medium fish
+@export var lure_net: int = 0         # set to 1 by Lure Net upgrade — TODO drift-toward-center
 
 @export_group("Upgrades")
 # Each entry: { "key": { "name", "description", "max_level", "costs": Array[int], "field": String, "step": float } }

@@ -154,9 +154,14 @@ func _pierce_through(fish: Fish) -> void:
 func _net_capture(first_fish: Fish) -> void:
 	var radius: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
 	var max_catch: int = int(GameData.get_effective_spear_stat(current_type_id, "net_max_catch"))
+	# Effective allowed size set: defaults from SpearType, widened by Bigger Hoop upgrade.
+	var allowed := current_type.catch_size_classes.duplicate()
+	if int(GameData.get_effective_spear_stat(current_type_id, "catches_medium")) == 1 and not allowed.has(&"medium"):
+		allowed.append(&"medium")
 	attached_fish_array.clear()
+	# TODO: if current_type.lure_net == 1 (or effective stat == 1), tween caught fish toward net center over ~0.2s before resolution.
 	# Include the first fish that triggered the net only if it matches the size gate.
-	if current_type.catch_size_classes.has(first_fish.size_class):
+	if allowed.has(first_fish.size_class):
 		first_fish.on_speared(self)
 		attached_fish_array.append(first_fish)
 		_spawn_hit_burst(first_fish.global_position, first_fish.color)
@@ -172,7 +177,7 @@ func _net_capture(first_fish: Fish) -> void:
 		var f := n as Fish
 		if f == null or not is_instance_valid(f) or f.speared:
 			continue
-		if not current_type.catch_size_classes.has(f.size_class):
+		if not allowed.has(f.size_class):
 			continue
 		if f.global_position.distance_squared_to(center) <= r2:
 			f.on_speared(self)

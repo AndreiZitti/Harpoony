@@ -19,40 +19,49 @@ net_radius = 60.0
 net_max_catch = 3
 catch_size_classes = Array[StringName]([&"small"])
 upgrades = {
-"speed_mult": {
-	"name": "Aerodynamic Shaft",
-	"description": "+10% travel speed.",
-	"icon": "➤",
-	"max_level": 4,
-	"costs": [30, 90, 250, 700],
-	"field": "speed_mult",
-	"step": 0.1
+"net_radius": {
+    "name": "Mesh Quality",
+    "description": "+25 catch radius (baseline).",
+    "icon": "◯",
+    "max_level": 1,
+    "costs": [120],
+    "field": "net_radius",
+    "step": 25.0
+},
+"cast_wide": {
+    "name": "Cast Wide",
+    "description": "Wide branch — +30 catch radius.",
+    "icon": "⊙",
+    "max_level": 1,
+    "costs": [400],
+    "field": "net_radius",
+    "step": 30.0
+},
+"bigger_hoop": {
+    "name": "Bigger Hoop",
+    "description": "Wide branch — also catches MEDIUM fish.",
+    "icon": "⊞",
+    "max_level": 1,
+    "costs": [800],
+    "field": "catches_medium",
+    "step": 1
 },
 "reel_speed_mult": {
-	"name": "Stronger Line",
-	"description": "+10% reel-in speed.",
-	"icon": "≣",
-	"max_level": 4,
-	"costs": [50, 150, 400, 1000],
-	"field": "reel_speed_mult",
-	"step": 0.1
+    "name": "Weighted Net",
+    "description": "Smart branch — +30% reel-in speed.",
+    "icon": "≣",
+    "max_level": 1,
+    "costs": [200],
+    "field": "reel_speed_mult",
+    "step": 0.3
 },
-"net_max_catch": {
-	"name": "Wider Mesh",
-	"description": "+1 fish caught per net.",
-	"icon": "⊞",
-	"max_level": 3,
-	"costs": [200, 600, 1500],
-	"field": "net_max_catch",
-	"step": 1
-},
-"net_radius": {
-	"name": "Bigger Net",
-	"description": "+15 catch radius.",
-	"icon": "◯",
-	"max_level": 3,
-	"costs": [150, 450, 1100],
-	"field": "net_radius",
-	"step": 15.0
+"lure_net": {
+    "name": "Lure Net",
+    "description": "Smart branch — fish drift toward center before snap.",
+    "icon": "✺",
+    "max_level": 1,
+    "costs": [600],
+    "field": "lure_net",
+    "step": 1
 }
 }
