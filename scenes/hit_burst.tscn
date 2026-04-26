@@ -1,0 +1,38 @@
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="Gradient" id="BurstGradient"]
+offsets = PackedFloat32Array(0, 0.5, 1)
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0.6, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture2D" id="BurstTex"]
+gradient = SubResource("BurstGradient")
+width = 16
+height = 16
+fill = 1
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(1, 0.5)
+
+[sub_resource type="Curve" id="ScaleCurve"]
+_data = [Vector2(0, 1), 0.0, 0.0, 0, 0, Vector2(1, 0), 0.0, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="ParticleProcessMaterial" id="BurstMat"]
+emission_shape = 1
+emission_sphere_radius = 4.0
+direction = Vector3(0, 0, 0)
+spread = 180.0
+initial_velocity_min = 80.0
+initial_velocity_max = 160.0
+gravity = Vector3(0, 40, 0)
+scale_min = 0.6
+scale_max = 1.4
+scale_curve = SubResource("ScaleCurve")
+
+[node name="HitBurst" type="GPUParticles2D"]
+emitting = true
+amount = 14
+lifetime = 0.4
+one_shot = true
+explosiveness = 1.0
+texture = SubResource("BurstTex")
+process_material = SubResource("BurstMat")

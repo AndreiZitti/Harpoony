@@ -3,7 +3,7 @@ extends Node2D
 
 const FishScene = preload("res://scenes/fish.tscn")
 
-const SCHOOL_RADIUS = 40.0
+var SCHOOL_RADIUS = 40.0
 const PANIC_DURATION = 0.6
 const REGROUP_DURATION = 0.4
 const PANIC_SPEED = 320.0
@@ -41,9 +41,15 @@ func setup(species_name: String, start_pos: Vector2, direction_right_: bool, cou
 		"lanternfish":
 			leader_speed = 130.0
 			wave_frequency = 4.5
+			SCHOOL_RADIUS = 24.0   # tighter cluster — net-prime
+		"mahimahi":
+			leader_speed = 90.0
+			wave_frequency = 4.0
+			SCHOOL_RADIUS = 28.0   # small pod
 		_:
 			leader_speed = 160.0
 			wave_frequency = 5.5
+			SCHOOL_RADIUS = 40.0
 
 	for i in count:
 		var fish: Fish = FishScene.instantiate()

@@ -1,0 +1,57 @@
+[gd_resource type="Resource" script_class="SpearType" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/spear_type.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"normal"
+display_name = "Normal Spear"
+description = "Single-target spear. Reels in the fish you hit."
+color = Color(0.95, 0.9, 0.6, 1)
+icon_glyph = "│"
+unlock_cost = 0
+speed_mult = 1.0
+reel_speed_mult = 1.0
+hit_radius_bonus = 0.0
+value_bonus = 1.0
+pierce_count = 1
+net_radius = 0.0
+net_max_catch = 1
+upgrades = {
+"speed_mult": {
+	"name": "Aerodynamic Shaft",
+	"description": "+10% travel speed.",
+	"icon": "➤",
+	"max_level": 4,
+	"costs": [30, 90, 250, 700],
+	"field": "speed_mult",
+	"step": 0.1
+},
+"hit_radius_bonus": {
+	"name": "Wider Tip",
+	"description": "+8 hit radius — easier to land hits.",
+	"icon": "◎",
+	"max_level": 3,
+	"costs": [50, 180, 500],
+	"field": "hit_radius_bonus",
+	"step": 8.0
+},
+"pierce_count": {
+	"name": "Razor Edge",
+	"description": "Each level: +1 fish pierced per shot. Pierced fish award cash inline; the spear no longer reels.",
+	"icon": "✦",
+	"max_level": 3,
+	"costs": [80, 220, 600],
+	"field": "pierce_count",
+	"step": 1
+},
+"value_bonus": {
+	"name": "Polished Tip",
+	"description": "+10% cash on every hit.",
+	"icon": "✱",
+	"max_level": 4,
+	"costs": [60, 180, 500, 1400],
+	"field": "value_bonus",
+	"step": 0.1
+}
+}

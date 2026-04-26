@@ -5,118 +5,43 @@ extends Node2D
 @onready var oxygen_timer: Timer = $OxygenTimer
 @onready var hud: CanvasLayer = $HUD
 @onready var upgrade_shop: CanvasLayer = $UpgradeShop
-@onready var day_summary: CanvasLayer = $DaySummary
+
+const BubbleFieldScript = preload("res://scripts/bubble_field.gd")
+const GameMenuScript = preload("res://scripts/game_menu.gd")
+var _bubble_field: Node2D = null
+var _game_menu: CanvasLayer = null
 
 const DIVE_TRAVEL_DURATION = 1.5
 const RESURFACE_TRAVEL_DURATION = 1.0
 var travel_timer: float = 0.0
 var _hit_stop_active: bool = false
 
-# Dev mode
-const DEV_KEYMAP = {
-	KEY_1: "sardine",
-	KEY_2: "pufferfish",
-	KEY_3: "mahimahi",
-	KEY_4: "squid",
-	KEY_5: "lanternfish",
-	KEY_6: "anglerfish",
-	KEY_7: "marlin",
-	KEY_8: "grouper",
-	KEY_9: "tuna",
-}
-const DEV_SPECIES_LIST = [
-	["Sardine school", "sardine"],
-	["Pufferfish", "pufferfish"],
-	["Mahi-mahi", "mahimahi"],
-	["Squid", "squid"],
-	["Lanternfish school", "lanternfish"],
-	["Anglerfish", "anglerfish"],
-	["Marlin", "marlin"],
-	["Grouper", "grouper"],
-	["Tuna", "tuna"],
-]
-var dev_mode_active: bool = false
-var _dev_layer: CanvasLayer = null
-var _dev_panel: Control = null
-var _dev_toggle_button: Button = null
-
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.04, 0.08, 0.14))
 
 	upgrade_shop.next_dive_pressed.connect(_on_dive_pressed)
-	day_summary.next_day_pressed.connect(_on_next_day_pressed)
 	oxygen_timer.timeout.connect(_on_oxygen_tick)
 
 	GameData.set_dive_state(GameData.DiveState.SURFACE)
 	upgrade_shop.show_shop()
-	day_summary.hide_summary()
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(false)
 
-	_build_dev_panel()
+	# BubbleField sits behind the diver/fish but on top of the water gradient.
+	_bubble_field = Node2D.new()
+	_bubble_field.set_script(BubbleFieldScript)
+	_bubble_field.name = "BubbleField"
+	add_child(_bubble_field)
+	move_child(_bubble_field, 0)
 
-
-func _build_dev_panel() -> void:
-	_dev_layer = CanvasLayer.new()
-	_dev_layer.layer = 100
-	add_child(_dev_layer)
-
-	# Always-visible toggle button in top-right corner
-	_dev_toggle_button = Button.new()
-	_dev_toggle_button.text = "DEV"
-	_dev_toggle_button.position = Vector2(1216, 8)
-	_dev_toggle_button.size = Vector2(56, 28)
-	_dev_toggle_button.modulate = Color(1, 1, 1, 0.7)
-	_dev_toggle_button.pressed.connect(_toggle_dev_mode)
-	_dev_layer.add_child(_dev_toggle_button)
-
-	# Expandable panel with species buttons
-	_dev_panel = Control.new()
-	_dev_panel.position = Vector2(1036, 44)
-	_dev_panel.size = Vector2(236, 460)
-	_dev_layer.add_child(_dev_panel)
-
-	var bg = ColorRect.new()
-	bg.color = Color(0, 0, 0, 0.7)
-	bg.position = Vector2.ZERO
-	bg.size = Vector2(236, 460)
-	_dev_panel.add_child(bg)
-
-	var title = Label.new()
-	title.text = "DEV MODE"
-	title.position = Vector2(12, 8)
-	title.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
-	_dev_panel.add_child(title)
-
-	var hint = Label.new()
-	hint.text = "Click or press 1–9"
-	hint.position = Vector2(12, 32)
-	hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.75))
-	hint.add_theme_font_size_override("font_size", 11)
-	_dev_panel.add_child(hint)
-
-	var y = 60
-	for i in DEV_SPECIES_LIST.size():
-		var entry = DEV_SPECIES_LIST[i]
-		var btn = Button.new()
-		btn.text = "%d  %s" % [i + 1, entry[0]]
-		btn.position = Vector2(12, y)
-		btn.size = Vector2(212, 30)
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		var species_id: String = entry[1]
-		btn.pressed.connect(func(): _dev_spawn(species_id))
-		_dev_panel.add_child(btn)
-		y += 34
-
-	var oxy_note = Label.new()
-	oxy_note.text = "Oxygen paused while open"
-	oxy_note.position = Vector2(12, y + 8)
-	oxy_note.add_theme_color_override("font_color", Color(0.55, 0.85, 1.0))
-	oxy_note.add_theme_font_size_override("font_size", 11)
-	_dev_panel.add_child(oxy_note)
-
-	_dev_panel.visible = false
+	# Pause/dev menu — ESC to toggle. Owns the dev spawn panel.
+	_game_menu = CanvasLayer.new()
+	_game_menu.set_script(GameMenuScript)
+	_game_menu.name = "GameMenu"
+	add_child(_game_menu)
+	_game_menu.set_dev_spawn_callable(_dev_spawn)
+	_game_menu.session_reset_requested.connect(_on_session_reset)
 
 
 func _dev_spawn(species: String) -> void:
@@ -124,29 +49,31 @@ func _dev_spawn(species: String) -> void:
 		fish_spawner.dev_spawn(species)
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey:
-		var kb = event as InputEventKey
-		if not kb.pressed or kb.echo:
-			return
-		if kb.keycode == KEY_QUOTELEFT or kb.keycode == KEY_F1:
-			_toggle_dev_mode()
-			get_viewport().set_input_as_handled()
-			return
-		if dev_mode_active and DEV_KEYMAP.has(kb.keycode):
-			var species: String = DEV_KEYMAP[kb.keycode]
-			if fish_spawner.has_method("dev_spawn"):
-				fish_spawner.dev_spawn(species)
-			get_viewport().set_input_as_handled()
-
-
-func _toggle_dev_mode() -> void:
-	dev_mode_active = not dev_mode_active
-	if _dev_panel:
-		_dev_panel.visible = dev_mode_active
-	if _dev_toggle_button:
-		_dev_toggle_button.modulate = Color(1, 0.85, 0.4, 1.0) if dev_mode_active else Color(1, 1, 1, 0.7)
-	oxygen_timer.paused = dev_mode_active
+# Reset session: zero cash, clear upgrades + unlocks, fresh bag, back to surface.
+func _on_session_reset() -> void:
+	GameData.cash = 0.0
+	GameData.upgrade_levels = {"oxygen": 0, "spear_bag": 0}
+	GameData.unlocked_zone_index = 0
+	GameData.selected_zone_index = 0
+	GameData.unlocked_spear_types = [&"normal"]
+	GameData.spear_upgrade_levels.clear()
+	for t in GameData.spear_types:
+		var levels := {}
+		for k in t.upgrades.keys():
+			levels[k] = 0
+		GameData.spear_upgrade_levels[t.id] = levels
+	GameData.bag_loadout.clear()
+	GameData.auto_fill_bag()
+	GameData.cash_changed.emit(0.0)
+	GameData.zone_changed.emit(GameData.get_current_zone())
+	# If a dive is in progress, abort cleanly back to surface.
+	if GameData.dive_state != GameData.DiveState.SURFACE:
+		fish_spawner.stop_spawning()
+		oxygen_timer.stop()
+		if diver.has_method("set_visible_in_water"):
+			diver.set_visible_in_water(false)
+		GameData.set_dive_state(GameData.DiveState.SURFACE)
+	upgrade_shop.show_shop()
 
 
 func _process(delta: float) -> void:
@@ -175,8 +102,11 @@ func _on_dive_pressed() -> void:
 	GameData.start_dive()
 	travel_timer = 0.0
 	upgrade_shop.hide_shop()
+	Sfx.splash()
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(true)
+	if diver.has_method("reload_spear_types"):
+		diver.reload_spear_types()
 
 
 func _enter_underwater() -> void:
@@ -209,6 +139,7 @@ func _begin_resurface() -> void:
 		diver.enable_fishing(false)
 	GameData.set_dive_state(GameData.DiveState.RESURFACING)
 	travel_timer = 0.0
+	Sfx.resurface()
 
 
 func hit_stop(duration: float = 0.08, time_scale: float = 0.05) -> void:
@@ -228,24 +159,16 @@ func _enter_surface() -> void:
 	GameData.finish_dive()
 	if diver.has_method("set_visible_in_water"):
 		diver.set_visible_in_water(false)
-	if GameData.is_day_over():
-		day_summary.show_summary()
-	else:
-		upgrade_shop.show_shop()
-
-
-func _on_next_day_pressed() -> void:
-	day_summary.hide_summary()
-	GameData.advance_to_next_day()
+	if hud and hud.has_method("show_dive_summary"):
+		hud.show_dive_summary(GameData.last_dive_cash, GameData.last_dive_fish, GameData.last_dive_shots)
 	upgrade_shop.show_shop()
 
 
 func _draw() -> void:
 	var viewport = get_viewport_rect().size
 	var water_surface_y = 140.0
-	# Sky always uses surface phase palette. Water uses current zone underwater,
-	# and surface-phase palette while on the boat.
-	var phase_palette = GameData.PHASE_PALETTES[GameData.get_current_phase()]
+	# Surface uses a fixed palette. Underwater pulls colors from the current zone.
+	var palette = GameData.SURFACE_PALETTE
 	var underwater = GameData.dive_state != GameData.DiveState.SURFACE
 	var water_top: Color
 	var water_bottom: Color
@@ -254,15 +177,15 @@ func _draw() -> void:
 		water_top = zone.water_top
 		water_bottom = zone.water_bottom
 	else:
-		water_top = phase_palette["water_top"]
-		water_bottom = phase_palette["water_bottom"]
+		water_top = palette["water_top"]
+		water_bottom = palette["water_bottom"]
 
 	# Sky gradient
 	for i in 8:
 		var t = i / 8.0
 		var y = t * water_surface_y
 		var band_h = water_surface_y / 8.0
-		var c = phase_palette["sky_top"].lerp(phase_palette["sky_bottom"], t)
+		var c = palette["sky_top"].lerp(palette["sky_bottom"], t)
 		draw_rect(Rect2(0, y, viewport.x, band_h + 1), c)
 
 	# Water gradient

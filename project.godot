@@ -18,12 +18,18 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameData="*res://scripts/game_data.gd"
+Sfx="*res://scripts/sfx.gd"
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
+
+[layer_names]
+
+2d_physics/layer_2="Spears"
+2d_physics/layer_3="Fish"
 
 [rendering]
 

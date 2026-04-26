@@ -1,11 +1,10 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/fish_spawner.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/hud.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/upgrade_shop.gd" id="4"]
 [ext_resource type="PackedScene" path="res://scenes/diver.tscn" id="5"]
-[ext_resource type="PackedScene" path="res://scenes/day_summary.tscn" id="6"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1")
@@ -25,5 +24,3 @@ script = ExtResource("3")
 [node name="UpgradeShop" type="CanvasLayer" parent="."]
 layer = 10
 script = ExtResource("4")
-
-[node name="DaySummary" parent="." instance=ExtResource("6")]

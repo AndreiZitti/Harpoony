@@ -48,11 +48,19 @@ func _spawn_at_random_edge(species: String) -> void:
 
 
 func _spawn_species(species: String, pos: Vector2, direction_right: bool) -> void:
-	if species == "sardine" or species == "lanternfish":
+	# Schooling species: tight clusters built via FishSchool. Sizes per species.
+	var school_count := 0
+	match species:
+		"sardine":
+			school_count = randi_range(4, 10)
+		"lanternfish":
+			school_count = randi_range(5, 8)  # tighter, denser cluster than before
+		"mahimahi":
+			school_count = randi_range(2, 3)  # small pod
+	if school_count > 0:
 		var school = FishSchoolScript.new()
 		get_tree().current_scene.add_child(school)
-		var count = randi_range(4, 10) if species == "sardine" else randi_range(3, 6)
-		school.setup(species, pos, direction_right, count)
+		school.setup(species, pos, direction_right, school_count)
 	else:
 		var fish: Fish = FishScene.instantiate()
 		fish.add_to_group("fish")

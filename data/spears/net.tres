@@ -1,0 +1,58 @@
+[gd_resource type="Resource" script_class="SpearType" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/spear_type.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"net"
+display_name = "Net Spear"
+description = "Opens on impact. Catches every fish in a radius (up to a cap)."
+color = Color(0.5, 0.85, 1.0, 1)
+icon_glyph = "▒"
+unlock_cost = 250
+speed_mult = 0.9
+reel_speed_mult = 0.85
+hit_radius_bonus = 0.0
+value_bonus = 1.0
+bypasses_defenses = true
+pierce_count = 1
+net_radius = 60.0
+net_max_catch = 3
+upgrades = {
+"speed_mult": {
+	"name": "Aerodynamic Shaft",
+	"description": "+10% travel speed.",
+	"icon": "➤",
+	"max_level": 4,
+	"costs": [30, 90, 250, 700],
+	"field": "speed_mult",
+	"step": 0.1
+},
+"reel_speed_mult": {
+	"name": "Stronger Line",
+	"description": "+10% reel-in speed.",
+	"icon": "≣",
+	"max_level": 4,
+	"costs": [50, 150, 400, 1000],
+	"field": "reel_speed_mult",
+	"step": 0.1
+},
+"net_max_catch": {
+	"name": "Wider Mesh",
+	"description": "+1 fish caught per net.",
+	"icon": "⊞",
+	"max_level": 3,
+	"costs": [200, 600, 1500],
+	"field": "net_max_catch",
+	"step": 1
+},
+"net_radius": {
+	"name": "Bigger Net",
+	"description": "+15 catch radius.",
+	"icon": "◯",
+	"max_level": 3,
+	"costs": [150, 450, 1100],
+	"field": "net_radius",
+	"step": 15.0
+}
+}

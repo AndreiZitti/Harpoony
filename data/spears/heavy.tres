@@ -1,0 +1,49 @@
+[gd_resource type="Resource" script_class="SpearType" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/spear_type.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"heavy"
+display_name = "Heavy Harpoon"
+description = "Slow, brutal. Punches through inflation, shells and shields."
+color = Color(0.85, 0.65, 0.45, 1)
+icon_glyph = "▎"
+unlock_cost = 1500
+speed_mult = 0.7
+reel_speed_mult = 0.85
+hit_radius_bonus = 4.0
+value_bonus = 1.2
+pierce_count = 1
+net_radius = 0.0
+net_max_catch = 1
+bypasses_defenses = true
+upgrades = {
+"speed_mult": {
+	"name": "Counterweight",
+	"description": "+10% travel speed.",
+	"icon": "➤",
+	"max_level": 4,
+	"costs": [60, 180, 500, 1400],
+	"field": "speed_mult",
+	"step": 0.1
+},
+"reel_speed_mult": {
+	"name": "Reinforced Line",
+	"description": "+10% reel-in speed.",
+	"icon": "≣",
+	"max_level": 4,
+	"costs": [70, 210, 600, 1500],
+	"field": "reel_speed_mult",
+	"step": 0.1
+},
+"value_bonus": {
+	"name": "Trophy Tip",
+	"description": "+15% cash on hits.",
+	"icon": "✱",
+	"max_level": 3,
+	"costs": [200, 600, 1500],
+	"field": "value_bonus",
+	"step": 0.15
+}
+}

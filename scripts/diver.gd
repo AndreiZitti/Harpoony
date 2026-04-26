@@ -1,8 +1,10 @@
 extends Node2D
 
-const Spear = preload("res://scenes/spear.tscn")
+const SpearScene = preload("res://scenes/spear.tscn")
 
-var spears: Array = []
+# Spears are instantiated per fire and self-cleanup on arrival. We just track
+# active ones so we can recall them when the dive ends.
+var active_spears: Array = []
 var fishing_enabled: bool = false
 var surface_y: float = 100.0
 var underwater_y: float = 400.0
@@ -18,27 +20,27 @@ func _ready() -> void:
 	surface_y = 100.0
 	underwater_y = get_target_depth_y()
 	position = Vector2(viewport.x * 0.5, surface_y)
-	_rebuild_spears()
 
 
 func get_target_depth_y() -> float:
+	# Always dive to mid-screen so fish are visible above and below.
+	# Zone changes the species + water tint, not the diver's screen position.
 	var viewport = get_viewport_rect().size
-	var water_surface_y = 140.0
-	var depth_range = viewport.y - water_surface_y
-	# Map zone index 0..N-1 → fraction 0.2..0.85 of water column (visual only).
-	var n = max(1, GameData.zones.size())
-	var t = float(GameData.selected_zone_index) / float(max(1, n - 1))
-	var frac = lerpf(0.2, 0.85, t)
-	return water_surface_y + depth_range * frac
+	return viewport.y * 0.5
 
 
 func set_visible_in_water(flag: bool) -> void:
 	in_water = flag
 	visible = flag
 	if not flag:
-		for s in spears:
-			if is_instance_valid(s):
-				s.recall_instant()
+		_cleanup_active_spears()
+
+
+func _cleanup_active_spears() -> void:
+	for s in active_spears:
+		if is_instance_valid(s):
+			s.recall_instant()
+	active_spears.clear()
 
 
 func update_dive_travel(t: float) -> void:
@@ -54,27 +56,12 @@ func update_resurface_travel(t: float) -> void:
 
 func enable_fishing(flag: bool) -> void:
 	fishing_enabled = flag
-	_ensure_spear_count()
 
 
-func _ensure_spear_count() -> void:
-	var target = GameData.get_spear_count()
-	if spears.size() != target:
-		_rebuild_spears()
-
-
-func _rebuild_spears() -> void:
-	for s in spears:
-		if is_instance_valid(s):
-			s.queue_free()
-	spears.clear()
-	var count = GameData.get_spear_count()
-	for i in count:
-		var spear = Spear.instantiate()
-		spear.spear_index = i
-		spear.diver_node = self
-		add_child(spear)
-		spears.append(spear)
+# Stub kept so main.gd's existing call survives the refactor — types are now
+# pulled at fire time, so there's nothing to pre-load.
+func reload_spear_types() -> void:
+	pass
 
 
 func _process(delta: float) -> void:
@@ -100,11 +87,27 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _try_fire() -> void:
+	if GameData.get_bag_loaded_count() <= 0:
+		return
+	# Round drained — wait for the in-flight spears to return + reshuffle.
+	if GameData.bag_is_exhausted():
+		return
 	var dir = Vector2(cos(aim_angle), sin(aim_angle))
-	for s in spears:
-		if is_instance_valid(s) and s.is_ready():
-			s.throw_in_direction(dir)
-			return
+	var spear = SpearScene.instantiate()
+	spear.diver_node = self
+	get_tree().current_scene.add_child(spear)
+	spear.global_position = global_position
+	if not spear.fire(dir):
+		# Pull failed (e.g. queue empty mid-dive) — clean up.
+		spear.queue_free()
+		return
+	active_spears.append(spear)
+	# Auto-prune when the spear frees itself on arrival.
+	spear.tree_exited.connect(_on_spear_freed.bind(spear))
+
+
+func _on_spear_freed(spear: Node) -> void:
+	active_spears.erase(spear)
 
 
 func _draw() -> void:
@@ -115,7 +118,23 @@ func _draw() -> void:
 	draw_circle(Vector2(-4, -12), 3, Color(0.2, 0.6, 1.0, 0.6))  # mask
 
 	if fishing_enabled:
-		draw_arc(Vector2.ZERO, AIM_RADIUS, 0, TAU, 64, Color(1, 1, 1, 0.15), 1.5)
+		# Aim indicator color shifts with fire-state so the player sees status at a glance.
+		var can_fire := GameData.get_bag_loaded_count() > 0 and not GameData.bag_is_exhausted()
+		var ring_alpha: float = 0.15 if can_fire else 0.08
+		draw_arc(Vector2.ZERO, AIM_RADIUS, 0, TAU, 64, Color(1, 1, 1, ring_alpha), 1.5)
 		var p = Vector2(cos(aim_angle), sin(aim_angle)) * AIM_RADIUS
-		draw_line(Vector2.ZERO, p, Color(1.0, 0.85, 0.3, 0.4), 2.0)
-		draw_circle(p, 6, Color(1.0, 0.85, 0.3))
+		var line_color: Color
+		var dot_color: Color
+		if can_fire:
+			line_color = Color(1.0, 0.85, 0.3, 0.6)
+			dot_color = Color(1.0, 0.85, 0.3)
+		else:
+			# Cool gray when blocked — matches the dimmed queue chips.
+			line_color = Color(0.55, 0.6, 0.7, 0.35)
+			dot_color = Color(0.55, 0.6, 0.7, 0.7)
+		draw_line(Vector2.ZERO, p, line_color, 2.0)
+		draw_circle(p, 6, dot_color)
+		# Pulse marker when bag is empty (waiting for spear to return).
+		if not can_fire:
+			var pulse := 0.5 + 0.5 * sin(aim_angle * 4.0)
+			draw_arc(Vector2.ZERO, AIM_RADIUS, 0, TAU, 64, Color(0.7, 0.75, 0.85, 0.05 + 0.06 * pulse), 1.0)
