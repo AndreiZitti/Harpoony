@@ -44,6 +44,7 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 	upgrade_shop.next_dive_pressed.connect(_on_dive_pressed)
+	upgrade_shop.new_game_requested.connect(_on_session_reset)
 	oxygen_timer.timeout.connect(_on_oxygen_tick)
 
 	GameData.set_dive_state(GameData.DiveState.SURFACE)
@@ -201,7 +202,7 @@ func _on_session_reset() -> void:
 	GameData.cash = 0.0
 	GameData.dive_number = 0
 	GameData.dive_number_changed.emit(0)
-	GameData.upgrade_levels = {"oxygen": 0, "spear_bag": 0}
+	GameData.upgrade_levels = {"oxygen": 0, "spear_bag": 0, "reload_speed": 0}
 	GameData.unlocked_zone_index = 0
 	GameData.selected_zone_index = 0
 	GameData.unlocked_spear_types = [&"normal"]
@@ -244,7 +245,7 @@ func _process(delta: float) -> void:
 				_enter_underwater()
 
 		GameData.DiveState.UNDERWATER:
-			pass
+			GameData.tick_reload(delta)
 
 		GameData.DiveState.RESURFACING:
 			travel_timer += delta

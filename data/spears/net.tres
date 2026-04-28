@@ -6,7 +6,7 @@
 script = ExtResource("1")
 id = &"net"
 display_name = "Net Spear"
-description = "Opens on impact. Catches every fish in a radius (up to a cap)."
+description = "Opens on impact. Catches every fish in a radius (up to a cap). Cannot hold large fish."
 color = Color(0.5, 0.85, 1.0, 1)
 icon_glyph = "▒"
 unlock_cost = 250
@@ -17,42 +17,90 @@ value_bonus = 1.0
 pierce_count = 1
 net_radius = 60.0
 net_max_catch = 3
-catch_size_classes = Array[StringName]([&"small"])
+catch_size_classes = Array[StringName]([&"small", &"medium"])
+lure_pulse = 0
+standing_wave = 0
+tagging_net = 0
+schooling_bonus = 0
 upgrades = {
+"speed_mult": {
+    "name": "Quick Cast",
+    "description": "+10% cast & reel speed per level.",
+    "icon": "≣",
+    "max_level": 5,
+    "costs": [60, 160, 400, 1000, 2400],
+    "field": "speed_mult",
+    "step": 0.1,
+    "keystone": false
+},
 "net_radius": {
-    "name": "Mesh Quality",
-    "description": "+12 catch radius per level.",
-    "icon": "◯",
+    "name": "Wider Hoop",
+    "description": "+12 net radius per level.",
+    "icon": "○",
     "max_level": 5,
     "costs": [80, 200, 500, 1200, 2500],
     "field": "net_radius",
-    "step": 12.0
+    "step": 12.0,
+    "keystone": false
+},
+"value_bonus": {
+    "name": "Cash Catch",
+    "description": "+15% cash per net cast, per level.",
+    "icon": "✱",
+    "max_level": 5,
+    "costs": [180, 450, 1100, 2400, 5200],
+    "field": "value_bonus",
+    "step": 0.15,
+    "keystone": false
 },
 "net_max_catch": {
     "name": "Wider Mesh",
     "description": "+1 fish caught per cast, per level.",
     "icon": "⊞",
-    "max_level": 4,
-    "costs": [150, 400, 1000, 2200],
+    "max_level": 5,
+    "costs": [150, 400, 1000, 2200, 4800],
     "field": "net_max_catch",
-    "step": 1
+    "step": 1,
+    "keystone": false
 },
-"reel_speed_mult": {
-    "name": "Weighted Net",
-    "description": "+10% reel-in speed per level.",
-    "icon": "≣",
-    "max_level": 4,
-    "costs": [100, 250, 600, 1400],
-    "field": "reel_speed_mult",
-    "step": 0.1
+"lure_pulse": {
+    "name": "Lure Pulse",
+    "description": "After cast, the net pulls small fish toward center for 1s. Each level extends pull radius.",
+    "icon": "❀",
+    "max_level": 3,
+    "costs": [300, 800, 2000],
+    "field": "lure_pulse",
+    "step": 1,
+    "keystone": false
 },
-"catches_medium": {
-    "name": "Bigger Hoop",
-    "description": "Net also catches MEDIUM fish.",
-    "icon": "⊕",
+"standing_wave": {
+    "name": "Standing Wave",
+    "description": "Net stays open for 3 seconds. Anything passing through is caught (subject to max-catch).",
+    "icon": "≈",
     "max_level": 1,
-    "costs": [1500],
-    "field": "catches_medium",
-    "step": 1
+    "costs": [3000],
+    "field": "standing_wave",
+    "step": 1,
+    "keystone": true
+},
+"tagging_net": {
+    "name": "Tagging Net",
+    "description": "Fish that escape the net are marked. Any spear that catches a marked fish later earns 2× cash.",
+    "icon": "⌖",
+    "max_level": 1,
+    "costs": [2500],
+    "field": "tagging_net",
+    "step": 1,
+    "keystone": true
+},
+"schooling_bonus": {
+    "name": "Schooling Bonus",
+    "description": "If 5+ fish are caught in a single cast, each is worth 2× cash.",
+    "icon": "❉",
+    "max_level": 1,
+    "costs": [3500],
+    "field": "schooling_bonus",
+    "step": 1,
+    "keystone": true
 }
 }

@@ -6,7 +6,7 @@
 script = ExtResource("1")
 id = &"normal"
 display_name = "Normal Spear"
-description = "Single-target spear. Reels in the fish you hit."
+description = "Single-target spear. Pierces fish in a line, rewards center-of-radius hits with bonus cash."
 color = Color(0.95, 0.9, 0.6, 1)
 icon_glyph = "│"
 unlock_cost = 0
@@ -15,35 +15,29 @@ reel_speed_mult = 1.0
 hit_radius_bonus = 0.0
 value_bonus = 1.0
 pierce_count = 1
+bullseye_bonus = 0.0
 net_radius = 0.0
 net_max_catch = 1
 upgrades = {
 "speed_mult": {
-    "name": "Aerodynamic Shaft",
-    "description": "+10% travel speed per level.",
-    "icon": "➤",
+    "name": "Quick Reel",
+    "description": "+10% cast & reel speed per level.",
+    "icon": "≣",
     "max_level": 5,
     "costs": [30, 80, 200, 500, 1200],
     "field": "speed_mult",
-    "step": 0.1
+    "step": 0.1,
+    "keystone": false
 },
 "hit_radius_bonus": {
     "name": "Wider Tip",
-    "description": "+6 hit radius per level — easier to land hits.",
+    "description": "+6 hit radius per level.",
     "icon": "◎",
-    "max_level": 4,
-    "costs": [40, 120, 300, 800],
+    "max_level": 5,
+    "costs": [40, 120, 300, 800, 1800],
     "field": "hit_radius_bonus",
-    "step": 6.0
-},
-"reel_speed_mult": {
-    "name": "Rapid Reel",
-    "description": "+15% reel return per level.",
-    "icon": "≣",
-    "max_level": 4,
-    "costs": [50, 150, 400, 1000],
-    "field": "reel_speed_mult",
-    "step": 0.15
+    "step": 6.0,
+    "keystone": false
 },
 "value_bonus": {
     "name": "Polished Tip",
@@ -52,6 +46,27 @@ upgrades = {
     "max_level": 5,
     "costs": [60, 180, 450, 1100, 2500],
     "field": "value_bonus",
-    "step": 0.15
+    "step": 0.15,
+    "keystone": false
+},
+"pierce_count": {
+    "name": "Piercing Tip",
+    "description": "+1 fish pierced per shot, per level (1 → 4).",
+    "icon": "✦",
+    "max_level": 3,
+    "costs": [200, 600, 1500],
+    "field": "pierce_count",
+    "step": 1,
+    "keystone": false
+},
+"bullseye_bonus": {
+    "name": "Bullseye",
+    "description": "Center-of-radius hit pays 1.5× → 2× → 2.5× cash.",
+    "icon": "◉",
+    "max_level": 3,
+    "costs": [250, 700, 1800],
+    "field": "bullseye_bonus",
+    "step": 0.5,
+    "keystone": false
 }
 }

@@ -20,6 +20,10 @@ var session_reset_button: Button
 var session_time: float = 0.0
 var dive_counter_label: Label
 var dev_button: Button = null
+var trophy_target: Node2D = null
+var trophy_marker: Label = null
+var reload_label: Label = null
+var reload_bar: ProgressBar = null
 
 const SPECIES_COLOR = {
 	"sardine": Color(0.85, 0.92, 1.0),
@@ -42,7 +46,17 @@ func _ready() -> void:
 	GameData.zone_changed.connect(func(_z): _refresh_depth())
 	GameData.zone_unlocked.connect(func(_i): _refresh_depth())
 	GameData.dive_number_changed.connect(_on_dive_number_changed)
+	GameData.reload_state_changed.connect(_on_reload_state_changed)
 	_refresh()
+
+
+func _on_reload_state_changed(active: bool) -> void:
+	if reload_label:
+		reload_label.visible = active
+	if reload_bar:
+		reload_bar.visible = active
+		if not active:
+			reload_bar.value = 1.0
 
 
 func _build_ui() -> void:
@@ -186,6 +200,26 @@ func _build_ui() -> void:
 	for i in QUEUE_PREVIEW_LEN:
 		queue_chips.append(_build_queue_chip(i))
 		queue_preview.add_child(queue_chips[i])
+
+	# Reload indicator — tucked under the queue preview. The label fades while
+	# active so the player can see "the spears are being reshuffled" without it
+	# competing with the cash popups for attention.
+	reload_label = Label.new()
+	reload_label.text = "RELOADING…"
+	reload_label.add_theme_font_size_override("font_size", 11)
+	reload_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.30))
+	reload_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	reload_label.visible = false
+	queue_vbox.add_child(reload_label)
+
+	reload_bar = ProgressBar.new()
+	reload_bar.show_percentage = false
+	reload_bar.custom_minimum_size = Vector2(160, 4)
+	reload_bar.min_value = 0.0
+	reload_bar.max_value = 1.0
+	reload_bar.value = 0.0
+	reload_bar.visible = false
+	queue_vbox.add_child(reload_bar)
 
 
 	# Resurface button (bottom-right)
@@ -441,6 +475,22 @@ func _on_resurface_pressed() -> void:
 		main.begin_manual_resurface()
 
 
+func mark_trophy_target(node: Node2D) -> void:
+	# Whale Sonar (Heavy keystone) calls this with the force-spawned trophy.
+	# A small floating beacon tracks the fish's position until it despawns.
+	trophy_target = node
+	if trophy_marker == null:
+		trophy_marker = Label.new()
+		trophy_marker.text = "▼ TROPHY"
+		trophy_marker.add_theme_font_size_override("font_size", 14)
+		trophy_marker.add_theme_color_override("font_color", Color(1.0, 0.85, 0.30))
+		trophy_marker.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+		trophy_marker.add_theme_constant_override("outline_size", 4)
+		trophy_marker.z_index = 100
+		add_child(trophy_marker)
+	trophy_marker.visible = true
+
+
 func _process(delta: float) -> void:
 	# Stopwatch ticks regardless of dive state — measures real wall-clock playtime.
 	session_time += delta
@@ -453,6 +503,22 @@ func _process(delta: float) -> void:
 	# Cheat mode can be toggled at runtime — keep the DEV button in sync.
 	if dev_button and dev_button.visible != GameData.cheat_mode:
 		dev_button.visible = GameData.cheat_mode
+	# Reload progress bar — drives off GameData each frame while reloading.
+	if reload_bar and reload_bar.visible:
+		reload_bar.value = GameData.reload_progress()
+	if reload_label and reload_label.visible:
+		# Subtle pulse so the eye picks it up without it being distracting.
+		var pulse := 0.65 + 0.35 * sin(session_time * 8.0)
+		reload_label.modulate.a = pulse
+	# Trophy sonar marker — bob above the marked fish until it despawns.
+	if trophy_marker:
+		if trophy_target != null and is_instance_valid(trophy_target) and not (trophy_target is Fish and (trophy_target as Fish).speared):
+			var bob := sin(session_time * 4.0) * 4.0
+			trophy_marker.position = trophy_target.global_position + Vector2(-trophy_marker.size.x * 0.5, -36.0 + bob)
+			trophy_marker.visible = true
+		else:
+			trophy_marker.visible = false
+			trophy_target = null
 
 
 func _on_session_reset() -> void:

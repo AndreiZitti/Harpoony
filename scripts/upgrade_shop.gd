@@ -1,6 +1,8 @@
 extends CanvasLayer
 
 signal next_dive_pressed
+signal bestiary_pressed
+signal new_game_requested
 
 const COL_BOAT := Color(0.45, 0.7, 1.0)
 const COL_SPEARS := Color(1.0, 0.55, 0.55)
@@ -25,6 +27,15 @@ const SPEAR_SPRITE_PATHS := {
 	&"net": "res://assets/spears/net.png",
 	&"heavy": "res://assets/spears/heavy.png",
 }
+
+# --- Upgrade layout per spear card ---
+# Two flat sections per card: ramps on top (multi-level stat ladders), then
+# keystones on the bottom (binary mechanic flips). No tree shape, no connectors —
+# the per-spear identity is in the *content*, not the layout. See
+# docs/plans/2026-04-28-spear-redesign-and-fish-reshuffle.md for the locked design.
+const RAMP_TILE_SIZE := Vector2(72, 76)
+const KEYSTONE_TILE_SIZE := Vector2(96, 92)
+const COL_KEYSTONE := Color(1.0, 0.78, 0.30)
 
 var root_control: Control
 
@@ -102,6 +113,15 @@ func _build_header() -> Control:
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header.add_child(title)
+
+	# Mid-run reference button. Bestiary is owned by main.gd; shop just emits.
+	var bestiary_btn := Button.new()
+	bestiary_btn.text = "Bestiary"
+	bestiary_btn.custom_minimum_size = Vector2(110, 36)
+	bestiary_btn.focus_mode = Control.FOCUS_NONE
+	bestiary_btn.add_theme_font_size_override("font_size", 14)
+	bestiary_btn.pressed.connect(func(): bestiary_pressed.emit())
+	header.add_child(bestiary_btn)
 
 	cash_label = Label.new()
 	cash_label.add_theme_font_size_override("font_size", 28)
@@ -329,13 +349,15 @@ func _build_spears_column() -> Control:
 	return wrap_box
 
 
-# Hide spear cards whose zone gate hasn't been met yet. Called on build and on zone unlocks.
+# Cards are always visible now — locked spears render their tree slot as a big
+# "Reach Zone X" or "$ Unlock" panel (see _refresh_spear_column). Keeping all
+# three columns on screen at all times preserves the triptych and gives early
+# players a visible progression goal.
 func _apply_zone_gating() -> void:
 	for id in spear_card_widgets.keys():
 		var w: Dictionary = spear_card_widgets[id]
 		var card: Control = w["card"]
-		var min_zone: int = int(MIN_ZONE_FOR_SPEAR.get(id, 0))
-		card.visible = GameData.unlocked_zone_index >= min_zone
+		card.visible = true
 
 
 func _build_spear_card(t: SpearType) -> Dictionary:
@@ -390,14 +412,28 @@ func _build_spear_card(t: SpearType) -> Dictionary:
 	status_lbl.add_theme_color_override("font_color", COL_TEXT_MUTED)
 	header.add_child(status_lbl)
 
-	var desc = Label.new()
-	desc.text = t.description
-	desc.add_theme_font_size_override("font_size", 11)
-	desc.add_theme_color_override("font_color", COL_TEXT_MUTED)
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(desc)
+	# Spear description moves to the name's tooltip — saves vertical space for the tree.
+	name_lbl.tooltip_text = t.description
 
-	# In-card bag controls: − [ count ] +. Centered, prominent.
+	# Upgrade body: scrollable so cards with many ramps + keystones don't run
+	# off the bottom of the card. Vertical scroll only — width fits the column.
+	var tree_wrap = ScrollContainer.new()
+	tree_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tree_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tree_wrap.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tree_wrap.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	vbox.add_child(tree_wrap)
+
+	var tree_data := _build_skill_tree(t)
+	# The body needs to expand to the scroll container's width so HFlow wrapping
+	# kicks in (otherwise the tree sticks to its content's natural width and
+	# the scrollbar shows even when nothing's overflowing horizontally).
+	var body: Control = tree_data["control"]
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tree_wrap.add_child(body)
+
+	# Bottom of the card: bag stepper (unlocked) OR unlock button (locked).
+	# They share vertical space so the card height is stable across states.
 	var bag_row = HBoxContainer.new()
 	bag_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	bag_row.add_theme_constant_override("separation", 8)
@@ -433,34 +469,17 @@ func _build_spear_card(t: SpearType) -> Dictionary:
 	vbox.add_child(bag_caption)
 
 	var unlock_btn = Button.new()
-	unlock_btn.custom_minimum_size = Vector2(0, 32)
-	unlock_btn.add_theme_font_size_override("font_size", 12)
+	unlock_btn.custom_minimum_size = Vector2(0, 56)
+	unlock_btn.add_theme_font_size_override("font_size", 14)
 	unlock_btn.pressed.connect(_on_unlock_spear_pressed.bind(t.id))
 	vbox.add_child(unlock_btn)
-
-	# Spacer pushes the icon strip toward the bottom of the card.
-	var spacer = Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(spacer)
-
-	# Horizontal icon-tile strip — each upgrade is a single button with icon + price.
-	var tile_row = HBoxContainer.new()
-	tile_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	tile_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(tile_row)
-
-	var upgrade_rows_local: Dictionary = {}
-	for key in t.upgrades.keys():
-		var def: Dictionary = t.upgrades[key]
-		var tile = _build_upgrade_tile(t.id, key, def)
-		tile_row.add_child(tile["button"])
-		upgrade_rows_local[key] = tile
 
 	return {
 		"card": card,
 		"unlock_btn": unlock_btn,
 		"status_lbl": status_lbl,
-		"upgrade_rows": upgrade_rows_local,
+		"upgrade_rows": tree_data["nodes"],
+		"tree_wrap": tree_wrap,
 		"bag_row": bag_row,
 		"bag_minus": minus,
 		"bag_count": count_lbl,
@@ -469,17 +488,84 @@ func _build_spear_card(t: SpearType) -> Dictionary:
 	}
 
 
-# Single icon tile for a per-spear upgrade. Button contains icon + tiny pip row;
-# tooltip surfaces full name + description on hover. Razor Edge gets a goal accent.
-func _build_upgrade_tile(spear_id: StringName, key: String, def: Dictionary) -> Dictionary:
+# Builds the per-spear upgrade body: a ramps row (multi-level stat upgrades) and
+# an optional keystones row (binary mechanic flips). No tree shape or connectors —
+# upgrade defs are read in dict-insertion order from the .tres file, which the
+# data files are authored to match the on-screen reading order.
+# Returns: { control, nodes (key -> tile dict), connectors (always []) }.
+func _build_skill_tree(t: SpearType) -> Dictionary:
+	var root := VBoxContainer.new()
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_theme_constant_override("separation", 6)
+
+	var nodes: Dictionary = {}
+
+	var ramp_keys: Array = []
+	var keystone_keys: Array = []
+	for key in t.upgrades.keys():
+		var def: Dictionary = t.upgrades[key]
+		if bool(def.get("keystone", false)):
+			keystone_keys.append(key)
+		else:
+			ramp_keys.append(key)
+
+	# Ramps row — small tiles, wraps onto a second line if more than 4 items.
+	if not ramp_keys.is_empty():
+		root.add_child(_build_section_label("UPGRADES", COL_TEXT_MUTED))
+		var ramps_flow := HFlowContainer.new()
+		ramps_flow.add_theme_constant_override("h_separation", 6)
+		ramps_flow.add_theme_constant_override("v_separation", 6)
+		root.add_child(ramps_flow)
+		for key in ramp_keys:
+			var def: Dictionary = t.upgrades[key]
+			var tile := _build_upgrade_tile(t.id, key, def, false)
+			var btn: Button = tile["button"]
+			btn.custom_minimum_size = RAMP_TILE_SIZE
+			ramps_flow.add_child(btn)
+			nodes[key] = tile
+
+	# Keystones row — bigger gold-accented tiles. Only rendered if the spear has any.
+	if not keystone_keys.is_empty():
+		root.add_child(_build_section_label("KEYSTONES", COL_KEYSTONE))
+		var keys_flow := HFlowContainer.new()
+		keys_flow.add_theme_constant_override("h_separation", 8)
+		keys_flow.add_theme_constant_override("v_separation", 6)
+		root.add_child(keys_flow)
+		for key in keystone_keys:
+			var def: Dictionary = t.upgrades[key]
+			var tile := _build_upgrade_tile(t.id, key, def, true)
+			var btn: Button = tile["button"]
+			btn.custom_minimum_size = KEYSTONE_TILE_SIZE
+			keys_flow.add_child(btn)
+			nodes[key] = tile
+
+	return {
+		"control": root,
+		"nodes": nodes,
+		"connectors": [],
+	}
+
+
+# Section header used inside spear cards ("UPGRADES" / "KEYSTONES"). Tight,
+# small, colored to match the section's role.
+func _build_section_label(text: String, color: Color) -> Label:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.add_theme_color_override("font_color", color)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return lbl
+
+
+# Single icon tile for a per-spear upgrade. Button contains icon + pip row +
+# price. Keystone tiles render larger with a gold accent for visual distinction.
+func _build_upgrade_tile(spear_id: StringName, key: String, def: Dictionary, is_keystone: bool) -> Dictionary:
 	var btn = Button.new()
-	btn.custom_minimum_size = Vector2(82, 72)
 	btn.add_theme_font_size_override("font_size", 18)
 	btn.clip_text = false
 	btn.pressed.connect(_on_spear_upgrade_pressed.bind(spear_id, key))
-	# Tooltip: name + description + cost.
 	btn.tooltip_text = "%s\n%s" % [def.get("name", key), def.get("description", "")]
-	# Stack icon glyph on top of pip + price using a custom child layout.
 	var content = VBoxContainer.new()
 	content.set_anchors_preset(Control.PRESET_FULL_RECT)
 	content.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -489,8 +575,8 @@ func _build_upgrade_tile(spear_id: StringName, key: String, def: Dictionary) -> 
 
 	var icon_lbl = Label.new()
 	icon_lbl.text = def.get("icon", "?")
-	icon_lbl.add_theme_font_size_override("font_size", 18)
-	icon_lbl.add_theme_color_override("font_color", COL_TEXT)
+	icon_lbl.add_theme_font_size_override("font_size", 22 if is_keystone else 18)
+	icon_lbl.add_theme_color_override("font_color", COL_KEYSTONE if is_keystone else COL_TEXT)
 	icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(icon_lbl)
 
@@ -509,33 +595,37 @@ func _build_upgrade_tile(spear_id: StringName, key: String, def: Dictionary) -> 
 	price_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(price_lbl)
 
-	# Highlight Razor Edge (the L1 milestone goal) with a warm accent border.
-	var is_goal := key == "pierce_count"
 	return {
 		"button": btn,
 		"icon_lbl": icon_lbl,
 		"pips_lbl": pips_lbl,
 		"price_lbl": price_lbl,
-		"is_goal": is_goal,
+		"is_goal": false,
+		"is_keystone": is_keystone,
 	}
 
 
-func _style_tile(button: Button, is_goal: bool, state: String) -> void:
+func _style_tile(button: Button, is_keystone: bool, state: String) -> void:
 	var sb = StyleBoxFlat.new()
-	sb.set_corner_radius_all(6)
-	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8 if is_keystone else 6)
+	sb.set_border_width_all(2 if is_keystone else 1)
 	sb.set_content_margin_all(4)
 	match state:
 		"buyable":
-			sb.bg_color = Color(0.10, 0.14, 0.20)
-			sb.border_color = Color(0.55, 0.95, 0.65, 0.7) if is_goal else Color(0.55, 0.7, 0.95, 0.5)
-		"goal":  # buyable + Razor-Edge highlight at low level
-			sb.bg_color = Color(0.16, 0.16, 0.08)
-			sb.border_color = Color(1.0, 0.85, 0.35)
-			sb.set_border_width_all(2)
+			if is_keystone:
+				sb.bg_color = Color(0.16, 0.13, 0.06)
+				sb.border_color = Color(COL_KEYSTONE.r, COL_KEYSTONE.g, COL_KEYSTONE.b, 0.85)
+			else:
+				sb.bg_color = Color(0.10, 0.14, 0.20)
+				sb.border_color = Color(0.55, 0.7, 0.95, 0.5)
 		"max":
-			sb.bg_color = Color(0.06, 0.10, 0.06)
-			sb.border_color = Color(0.4, 0.7, 0.5, 0.5)
+			if is_keystone:
+				sb.bg_color = Color(0.18, 0.13, 0.04)
+				sb.border_color = Color(COL_KEYSTONE.r, COL_KEYSTONE.g, COL_KEYSTONE.b, 1.0)
+				sb.set_border_width_all(3)
+			else:
+				sb.bg_color = Color(0.06, 0.10, 0.06)
+				sb.border_color = Color(0.4, 0.7, 0.5, 0.5)
 		"locked":
 			sb.bg_color = Color(0.05, 0.06, 0.08)
 			sb.border_color = Color(COL_DIM.r, COL_DIM.g, COL_DIM.b, 0.3)
@@ -552,6 +642,15 @@ func _build_footer() -> Control:
 	var footer = HBoxContainer.new()
 	footer.custom_minimum_size = Vector2(0, 32)
 
+	# Wipe-progress button on the left so it isn't a swing-by-mistake target on
+	# the right edge near Cheat. Confirmation dialog protects against fat-finger.
+	var new_game_btn := Button.new()
+	new_game_btn.text = "New Game…"
+	new_game_btn.custom_minimum_size = Vector2(120, 28)
+	new_game_btn.add_theme_font_size_override("font_size", 11)
+	new_game_btn.pressed.connect(_on_new_game_pressed)
+	footer.add_child(new_game_btn)
+
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer.add_child(spacer)
@@ -563,6 +662,74 @@ func _build_footer() -> Control:
 	footer.add_child(cheat_button)
 
 	return footer
+
+
+func _on_new_game_pressed() -> void:
+	# Modal confirmation — wipes cash, upgrades, unlocks, history, discoveries.
+	# Implementation lives in main.gd via the existing _on_session_reset path.
+	# Uses a Control-based panel (not Godot's ConfirmationDialog Window) so it
+	# composites cleanly inside the shop's CanvasLayer.
+	var modal := Control.new()
+	modal.name = "NewGameModal"
+	modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal.mouse_filter = Control.MOUSE_FILTER_STOP
+	root_control.add_child(modal)
+
+	var scrim := ColorRect.new()
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.color = Color(0, 0, 0, 0.55)
+	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	modal.add_child(scrim)
+
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.position = Vector2(-210, -120)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.10, 0.16, 1.0)
+	sb.set_corner_radius_all(12)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(1.0, 0.78, 0.30, 0.6)
+	sb.set_content_margin_all(20)
+	panel.add_theme_stylebox_override("panel", sb)
+	modal.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "New Game"
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", COL_KEYSTONE)
+	vbox.add_child(title)
+
+	var body := Label.new()
+	body.text = "Wipe all progress and start a fresh run?\n\nCash, upgrades, unlocked spears, zone progress, and bestiary discoveries will be reset."
+	body.add_theme_font_size_override("font_size", 13)
+	body.add_theme_color_override("font_color", COL_TEXT)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size = Vector2(380, 0)
+	vbox.add_child(body)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_END
+	btn_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(btn_row)
+
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.custom_minimum_size = Vector2(110, 32)
+	cancel.pressed.connect(func(): modal.queue_free())
+	btn_row.add_child(cancel)
+
+	var confirm := Button.new()
+	confirm.text = "Yes, wipe progress"
+	confirm.custom_minimum_size = Vector2(170, 32)
+	confirm.pressed.connect(func():
+		modal.queue_free()
+		new_game_requested.emit())
+	btn_row.add_child(confirm)
 
 
 func _build_section_panel(title: String, accent: Color) -> Control:
@@ -676,29 +843,47 @@ func _refresh_spear_column() -> void:
 		var t := GameData.get_spear_type(id)
 		var status_lbl: Label = w["status_lbl"]
 		var unlock_btn: Button = w["unlock_btn"]
+		var bag_row: Control = w["bag_row"]
 		var bag_minus: Button = w["bag_minus"]
 		var bag_plus: Button = w["bag_plus"]
 		var bag_count: Label = w["bag_count"]
 		var bag_caption: Label = w["bag_caption"]
+		var tree_wrap: Control = w["tree_wrap"]
 		var unlocked := GameData.is_spear_type_unlocked(id)
 		var in_bag := int(GameData.bag_loadout.get(id, 0))
+		# Locked spears keep the ghosted tree visible (so the player sees what
+		# they're working toward) and replace the bag stepper with a smaller
+		# unlock button beneath the tree.
+		bag_row.visible = unlocked
+		bag_caption.visible = unlocked
+		tree_wrap.visible = true
+		tree_wrap.modulate = Color(1, 1, 1, 1) if unlocked else Color(1, 1, 1, 0.35)
+		unlock_btn.visible = not unlocked
 		if unlocked:
 			status_lbl.text = "UNLOCKED"
 			status_lbl.add_theme_color_override("font_color", Color(0.55, 0.95, 0.65))
-			unlock_btn.visible = false
 		else:
-			status_lbl.text = "LOCKED"
-			status_lbl.add_theme_color_override("font_color", COL_TEXT_MUTED)
-			unlock_btn.visible = true
-			unlock_btn.text = "UNLOCK — $%d" % t.unlock_cost
-			unlock_btn.disabled = not GameData.cheat_mode and GameData.cash < t.unlock_cost
-		# Bag controls
+			# Two locked variants:
+			#   - zone-gated: "Reach Kelp Forest" message, button disabled
+			#   - cash-gated: "$ UNLOCK" with disabled state if can't afford
+			var min_zone: int = int(MIN_ZONE_FOR_SPEAR.get(id, 0))
+			var zone_ok: bool = GameData.unlocked_zone_index >= min_zone
+			if not zone_ok and min_zone < GameData.zones.size():
+				var needed_zone: ZoneConfig = GameData.zones[min_zone]
+				status_lbl.text = "REACH %s" % needed_zone.display_name.to_upper()
+				status_lbl.add_theme_color_override("font_color", COL_DEPTH)
+				unlock_btn.text = "🔒  Reach %s first" % needed_zone.display_name
+				unlock_btn.disabled = true
+			else:
+				status_lbl.text = "LOCKED"
+				status_lbl.add_theme_color_override("font_color", COL_TEXT_MUTED)
+				unlock_btn.text = "🔒  UNLOCK\n$%d" % t.unlock_cost
+				unlock_btn.disabled = not GameData.cheat_mode and GameData.cash < t.unlock_cost
+		# Bag controls — only meaningful when unlocked, but keep state coherent.
 		bag_count.text = "%d" % in_bag
 		bag_minus.disabled = in_bag <= 0 or not unlocked
 		bag_plus.disabled = not GameData.can_increment_bag(id)
-		var bag_color: Color = COL_TEXT if unlocked else COL_TEXT_MUTED
-		bag_count.add_theme_color_override("font_color", bag_color)
-		bag_caption.add_theme_color_override("font_color", COL_TEXT_MUTED if unlocked else Color(COL_TEXT_MUTED.r, COL_TEXT_MUTED.g, COL_TEXT_MUTED.b, 0.4))
+		bag_count.add_theme_color_override("font_color", COL_TEXT)
 
 		var upg_rows: Dictionary = w["upgrade_rows"]
 		for key in upg_rows.keys():
@@ -707,7 +892,7 @@ func _refresh_spear_column() -> void:
 			var btn: Button = ud["button"]
 			var pips: RichTextLabel = ud["pips_lbl"]
 			var price: Label = ud["price_lbl"]
-			var is_goal: bool = ud["is_goal"]
+			var is_keystone: bool = ud.get("is_keystone", false)
 			var level := GameData.get_spear_upgrade_level(id, key)
 			var max_level: int = int(def["max_level"])
 			pips.text = _pip_string(level, max_level)
@@ -728,14 +913,13 @@ func _refresh_spear_column() -> void:
 				if GameData.cheat_mode or GameData.cash >= cost:
 					price.add_theme_color_override("font_color", Color(0.55, 0.95, 0.65))
 					btn.disabled = false
-					state = "goal" if (is_goal and level == 0) else "buyable"
+					state = "buyable"
 				else:
 					price.add_theme_color_override("font_color", COL_TEXT_MUTED)
 					btn.disabled = true
 					state = "unaffordable"
-			# Tooltip stays static — just keep the cost in the tile.
 			btn.tooltip_text = "%s\n%s" % [def.get("name", key), def.get("description", "")]
-			_style_tile(btn, is_goal, state)
+			_style_tile(btn, is_keystone, state)
 
 
 func _pip_string(level: int, max_level: int) -> String:

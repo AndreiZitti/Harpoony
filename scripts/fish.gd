@@ -408,6 +408,10 @@ func _is_inflated() -> bool:
 # Returns true if this fish should deflect the given spear (defense like puffer
 # inflation or triggerfish front-cone). Spears with bypasses_defenses skip the call.
 func deflects_spear(spear: Node2D) -> bool:
+	# Seismic Roar (Heavy keystone) disables every defended fish's defenses
+	# globally for ~10s after a Heavy hit. Highest-priority bypass.
+	if GameData.is_seismic_active():
+		return false
 	# Trophy-class fish (e.g. White Whale) bounce anything that doesn't break defenses.
 	# Generic so future trophy species inherit the rule automatically.
 	if size_class == SIZE_TROPHY:

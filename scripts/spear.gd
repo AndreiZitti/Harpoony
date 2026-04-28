@@ -9,7 +9,7 @@ const SPEAR_DRAW_LENGTH = 64.0  # screen length — tweak if too big/small in pl
 
 @onready var _shape: CollisionShape2D = $CollisionShape2D
 
-enum State { READY, FLYING, REELING_MISS, REELING_HIT, NET_REELING }
+enum State { READY, FLYING, REELING_MISS, REELING_HIT, NET_REELING, NET_STANDING_WAVE }
 
 var state: int = State.READY
 var diver_node: Node2D = null
@@ -26,6 +26,10 @@ var flight_distance_remaining: float = 0.0
 var _line_time: float = 0.0
 var _hits_this_flight: int = 0
 const MAX_FLIGHT_DISTANCE = 600.0
+const STANDING_WAVE_DURATION := 3.0
+var _standing_wave_remaining: float = 0.0
+var _standing_wave_max_catch: int = 1
+var _standing_wave_allowed: Array = []
 
 
 func _ready() -> void:
@@ -77,21 +81,107 @@ func _on_area_entered(area: Area2D) -> void:
 	var f := area as Fish
 	if f.speared:
 		return
-	# Defense check first — fish may deflect non-bypassing spears.
+	# Heavy spear: small/medium fish are destroyed on impact (no catch, no
+	# normal cash). Penetration Depth ramp lets Heavy plough through extra
+	# small/medium fish on its way to a large target — Heavy's identity is the
+	# trophy/defense-cracker, so this sacrifice is baked in.
+	if current_type_id == &"heavy" and (f.size_class == Fish.SIZE_SMALL or f.size_class == Fish.SIZE_MEDIUM):
+		_heavy_destroy_small(f)
+		return
+	# Defense check — fish may deflect non-bypassing spears.
 	var bypass: bool = current_type and current_type.bypasses_defenses
 	if not bypass and f.has_method("deflects_spear") and f.deflects_spear(self):
 		_handle_bounce(f)
 		return
-	# Net is AoE: always go through net path even with no special pierce.
+	# Net is AoE: route through standing-wave trap if keystone owned, else
+	# the regular instant-resolve sweep.
 	if current_type_id == &"net":
-		_net_capture(f)
+		if int(GameData.get_effective_spear_stat(&"net", "standing_wave")) >= 1:
+			_net_start_standing_wave(f)
+		else:
+			_net_capture(f)
 		return
+	# Heavy keystones fire on the impact frame (large/trophy fish only — the
+	# small/med destroy branch above already returned). Black Hole Tip pulls
+	# everything else in; Seismic Roar disables defenses screen-wide.
+	if current_type_id == &"heavy":
+		var bh: int = int(GameData.get_effective_spear_stat(&"heavy", "black_hole_tip"))
+		if bh >= 1:
+			_trigger_black_hole(global_position)
+		var sr: int = int(GameData.get_effective_spear_stat(&"heavy", "seismic_roar"))
+		if sr >= 1:
+			GameData.trigger_seismic_roar()
 	# Normal/Heavy: use pierce-through path when pierce_count > 1, else attach.
 	var pierce_cap: int = int(GameData.get_effective_spear_stat(current_type_id, "pierce_count"))
 	if pierce_cap > 1:
 		_pierce_through(f)
 	else:
 		attach_to_fish(f)
+
+
+# Heavy + Black Hole Tip: tween every small/medium fish on screen to the impact
+# point over ~0.4s and pay them out as free catches when they arrive. Spear is
+# not consumed for these — they're a free bonus on top of the regular catch.
+func _trigger_black_hole(at: Vector2) -> void:
+	var fish_nodes := get_tree().get_nodes_in_group("fish")
+	var pulled: Array = []
+	for n in fish_nodes:
+		var f := n as Fish
+		if f == null or not is_instance_valid(f) or f.speared:
+			continue
+		if f.size_class != Fish.SIZE_SMALL and f.size_class != Fish.SIZE_MEDIUM:
+			continue
+		f.speared = true  # locks out other interactions during the pull
+		pulled.append(f)
+	if pulled.is_empty():
+		return
+	var tween := get_tree().create_tween().set_parallel(true)
+	for f in pulled:
+		tween.tween_property(f, "global_position", at, 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(_finish_black_hole.bind(pulled, at))
+
+
+func _finish_black_hole(pulled: Array, at: Vector2) -> void:
+	var hud = get_tree().current_scene.get_node_or_null("HUD")
+	for f in pulled:
+		if not is_instance_valid(f):
+			continue
+		var cash := int(round(f.get_cash_value()))
+		var tag_mult: float = GameData.consume_fish_tag(f.get_instance_id())
+		if tag_mult > 0.0:
+			cash = int(round(cash * tag_mult))
+		var result := GameData.register_hit(cash)
+		GameData.add_dive_cash(result["value"])
+		GameData.note_fish_caught(current_type_id, StringName(f.species), int(result["value"]))
+		if hud and hud.has_method("spawn_cash_popup"):
+			hud.spawn_cash_popup(result["value"], at, f.species)
+		_spawn_hit_burst(at, f.color)
+		f.queue_free()
+
+
+# Heavy + small/medium target: destroy the fish, drop a small consolation
+# cash popup, and keep the spear flying as long as the penetration cap allows.
+# Penetration cap = penetration_depth + 1 (Lv 0 = 1 fish then reel; Lv 3 = 4).
+func _heavy_destroy_small(f: Fish) -> void:
+	var pen_levels: int = int(GameData.get_effective_spear_stat(current_type_id, "penetration_depth"))
+	var pen_cap: int = pen_levels + 1
+	var mini := int(round(f.get_cash_value() * 0.25))
+	# Drop any tag the fish might have had — it's gone now, no future catch will
+	# pay the bonus.
+	GameData.consume_fish_tag(f.get_instance_id())
+	if mini > 0:
+		var result := GameData.register_hit(mini)
+		GameData.add_dive_cash(result["value"])
+		var hud = get_tree().current_scene.get_node_or_null("HUD")
+		if hud and hud.has_method("spawn_cash_popup"):
+			hud.spawn_cash_popup(result["value"], f.global_position, f.species)
+	_spawn_hit_burst(f.global_position, f.color)
+	f.queue_free()
+	_hits_this_flight += 1
+	if _hits_this_flight >= pen_cap:
+		state = State.REELING_MISS
+		monitoring = false
+		_sync_hud()
 
 
 func _handle_bounce(fish: Fish) -> void:
@@ -142,8 +232,10 @@ func _effective_reel_speed() -> float:
 func _pierce_through(fish: Fish) -> void:
 	fish.on_speared(self)
 	var base := fish.get_cash_value()
-	base = int(round(base * _crit_multiplier(fish)))
-	# TODO: if get_effective_spear_stat(current_type_id, "sonic_boom") >= 1, stun nearby fish for ~0.6s.
+	base = int(round(base * _value_multiplier(fish)))
+	var tag_mult: float = GameData.consume_fish_tag(fish.get_instance_id())
+	if tag_mult > 0.0:
+		base = int(round(base * tag_mult))
 	var result := GameData.register_hit(base)
 	var arrive_pos := fish.global_position
 	var species := fish.species
@@ -169,35 +261,47 @@ func _pierce_through(fish: Fish) -> void:
 func _net_capture(first_fish: Fish) -> void:
 	var radius: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
 	var max_catch: int = int(GameData.get_effective_spear_stat(current_type_id, "net_max_catch"))
-	# Effective allowed size set: defaults from SpearType, widened by Bigger Hoop upgrade.
 	var allowed := current_type.catch_size_classes.duplicate()
 	if int(GameData.get_effective_spear_stat(current_type_id, "catches_medium")) == 1 and not allowed.has(&"medium"):
 		allowed.append(&"medium")
+	var has_tagging: bool = int(GameData.get_effective_spear_stat(&"net", "tagging_net")) >= 1
 	attached_fish_array.clear()
-	# TODO: if current_type.lure_net == 1 (or effective stat == 1), tween caught fish toward net center over ~0.2s before resolution.
-	# Include the first fish that triggered the net only if it matches the size gate.
+	# Track every fish that was inside the radius — used by Tagging Net to mark
+	# escapees (those skipped due to cap or size mismatch).
+	var in_radius: Array = []
 	if allowed.has(first_fish.size_class):
 		first_fish.on_speared(self)
 		attached_fish_array.append(first_fish)
 		_spawn_hit_burst(first_fish.global_position, first_fish.color)
-	# Sweep nearby fish.
+	in_radius.append(first_fish)
 	var center := global_position
 	var r2 := radius * radius
 	var nearby = get_tree().get_nodes_in_group("fish")
 	for n in nearby:
-		if attached_fish_array.size() >= max_catch:
-			break
 		if n == first_fish:
 			continue
 		var f := n as Fish
 		if f == null or not is_instance_valid(f) or f.speared:
 			continue
+		if f.global_position.distance_squared_to(center) > r2:
+			continue
+		in_radius.append(f)
+		if attached_fish_array.size() >= max_catch:
+			continue  # over cap — don't capture, but still in_radius for tagging
 		if not allowed.has(f.size_class):
 			continue
-		if f.global_position.distance_squared_to(center) <= r2:
-			f.on_speared(self)
-			attached_fish_array.append(f)
-			_spawn_hit_burst(f.global_position, f.color)
+		f.on_speared(self)
+		attached_fish_array.append(f)
+		_spawn_hit_burst(f.global_position, f.color)
+	# Tag any in-radius fish we didn't actually capture. The award path consumes
+	# the tag for a 2× payout when any spear catches them later in the dive.
+	if has_tagging:
+		for f in in_radius:
+			if not is_instance_valid(f):
+				continue
+			if attached_fish_array.has(f):
+				continue
+			GameData.tag_fish(f.get_instance_id())
 	state = State.NET_REELING
 	monitoring = false
 	_hits_this_flight = attached_fish_array.size()
@@ -206,6 +310,55 @@ func _net_capture(first_fish: Fish) -> void:
 	if main and main.has_method("hit_stop"):
 		main.hit_stop()
 	_sync_hud()
+
+
+# Standing Wave (Net keystone): instead of instant-resolving the cast, the net
+# hangs at the impact point for STANDING_WAVE_DURATION seconds. Per-frame sweep
+# in _process_standing_wave captures any fish that drifts into the radius
+# (subject to net_max_catch). When the timer expires or the cap is reached the
+# spear transitions to NET_REELING and pays out normally.
+func _net_start_standing_wave(first_fish: Fish) -> void:
+	var max_catch: int = int(GameData.get_effective_spear_stat(current_type_id, "net_max_catch"))
+	var allowed := current_type.catch_size_classes.duplicate()
+	if int(GameData.get_effective_spear_stat(current_type_id, "catches_medium")) == 1 and not allowed.has(&"medium"):
+		allowed.append(&"medium")
+	attached_fish_array.clear()
+	if allowed.has(first_fish.size_class):
+		first_fish.on_speared(self)
+		attached_fish_array.append(first_fish)
+		_spawn_hit_burst(first_fish.global_position, first_fish.color)
+	state = State.NET_STANDING_WAVE
+	monitoring = false
+	_standing_wave_remaining = STANDING_WAVE_DURATION
+	_standing_wave_max_catch = max_catch
+	_standing_wave_allowed = allowed
+	flight_dir = Vector2.ZERO
+	Sfx.net_catch()
+	_sync_hud()
+
+
+func _process_standing_wave(delta: float) -> void:
+	_standing_wave_remaining -= delta
+	if attached_fish_array.size() < _standing_wave_max_catch:
+		var radius: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
+		var r2 := radius * radius
+		for n in get_tree().get_nodes_in_group("fish"):
+			if attached_fish_array.size() >= _standing_wave_max_catch:
+				break
+			var f := n as Fish
+			if f == null or not is_instance_valid(f) or f.speared:
+				continue
+			if not _standing_wave_allowed.has(f.size_class):
+				continue
+			if f.global_position.distance_squared_to(global_position) > r2:
+				continue
+			f.on_speared(self)
+			attached_fish_array.append(f)
+			_spawn_hit_burst(f.global_position, f.color)
+	if _standing_wave_remaining <= 0.0 or attached_fish_array.size() >= _standing_wave_max_catch:
+		state = State.NET_REELING
+		_hits_this_flight = attached_fish_array.size()
+		_sync_hud()
 
 
 func attach_to_fish(fish: Fish) -> void:
@@ -235,7 +388,7 @@ func _spawn_hit_burst(at: Vector2, tint: Color) -> void:
 
 func recall_instant() -> void:
 	# Used when the dive ends mid-flight. Drop the spear and tell the bag we're done.
-	if state == State.FLYING or state == State.REELING_HIT or state == State.REELING_MISS or state == State.NET_REELING:
+	if state == State.FLYING or state == State.REELING_HIT or state == State.REELING_MISS or state == State.NET_REELING or state == State.NET_STANDING_WAVE:
 		GameData.note_spear_returned()
 	attached_fish = null
 	attached_fish_array.clear()
@@ -276,6 +429,10 @@ func _process(delta: float) -> void:
 				if away_from_diver.length_squared() > 0.01:
 					var target_angle = away_from_diver.angle()
 					attached_fish.rotation = lerp_angle(attached_fish.rotation, target_angle, clampf(delta * 10.0, 0.0, 1.0))
+		State.NET_STANDING_WAVE:
+			# Trap hovers in place — no movement, just per-frame fish sweep.
+			_line_time += delta
+			_process_standing_wave(delta)
 		State.NET_REELING:
 			var speed = _effective_reel_speed()
 			_reel_toward_diver(speed, delta)
@@ -322,16 +479,23 @@ func _reel_toward_diver(speed: float, delta: float) -> void:
 	global_position += to_diver.normalized() * speed * delta
 
 
-func _award_fish(fish: Fish) -> void:
+func _award_fish(fish: Fish, extra_mult: float = 1.0) -> void:
 	var base := fish.get_cash_value()
-	# Apply per-type value bonus (normal spears mostly).
+	# Apply per-type value bonus (universal stat ramp on every spear).
 	var bonus: float = 1.0
 	if current_type:
 		bonus = GameData.get_effective_spear_stat(current_type_id, "value_bonus")
 	base = int(round(base * bonus))
-	# Heavy crit branch: Sharp Tip rolls a chance for 2x; Perfect Strike auto-3x on dead-center.
-	# TODO: if get_effective_spear_stat(current_type_id, "sonic_boom") >= 1, stun nearby fish for ~0.6s on impact.
-	base = int(round(base * _crit_multiplier(fish)))
+	# Bullseye (Normal): center-of-radius hits add a multiplier.
+	base = int(round(base * _value_multiplier(fish)))
+	# Tagging Net (Net keystone): a previously-tagged fish caught by any spear
+	# pays its tag bonus on top of everything else. Consume the tag on award.
+	var tag_mult: float = GameData.consume_fish_tag(fish.get_instance_id())
+	if tag_mult > 0.0:
+		base = int(round(base * tag_mult))
+	# Schooling Bonus (Net keystone): caller passes 2.0 when ≥5 fish landed in a single net cast.
+	if extra_mult != 1.0:
+		base = int(round(base * extra_mult))
 	var result := GameData.register_hit(base)
 	var arrive_pos := fish.global_position
 	var species := fish.species
@@ -352,9 +516,12 @@ func _arrive() -> void:
 		attached_fish.queue_free()
 		attached_fish = null
 	elif state == State.NET_REELING:
+		# Schooling Bonus (Net keystone): 5+ fish in one cast → each pays 2×.
+		var sb: int = int(GameData.get_effective_spear_stat(&"net", "schooling_bonus"))
+		var school_mult: float = 2.0 if (sb >= 1 and attached_fish_array.size() >= 5) else 1.0
 		for f in attached_fish_array:
 			if is_instance_valid(f):
-				_award_fish(f)
+				_award_fish(f, school_mult)
 				f.queue_free()
 		attached_fish_array.clear()
 	# Notify the bag so the round can reshuffle once the last spear lands.
@@ -430,7 +597,7 @@ func _draw() -> void:
 		draw_texture_rect(tex, rect, false)
 	# Net AoE preview during flight — keep the procedural hoop overlay so the
 	# upgrade-driven net_radius is still legible at a glance.
-	if current_type_id == &"net" and state == State.FLYING:
+	if current_type_id == &"net" and (state == State.FLYING or state == State.NET_STANDING_WAVE):
 		var hoop_color := current_type.color if current_type else Color(0.5, 0.85, 1.0)
 		var r: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
 		var hoop_center := Vector2(SPEAR_DRAW_LENGTH * 0.5, 0.0)
@@ -442,18 +609,15 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-func _crit_multiplier(fish: Node2D) -> float:
-	# Heavy-only Crit branch: Perfect Strike (auto-3x on dead-center) takes precedence
-	# over Sharp Tip's probabilistic 2x. Both upgrades read via get_effective_spear_stat
-	# so future stacking sources Just Work.
+func _value_multiplier(fish: Node2D) -> float:
+	# Bullseye (Normal): center-of-radius hits add `bullseye_bonus` to the value
+	# multiplier — base property is 0.0; each upgrade level adds 0.5, so Lv 1
+	# pays 1.5×, Lv 2 pays 2×, Lv 3 pays 2.5×.
 	if current_type_id == &"":
 		return 1.0
-	var perfect_strike_eff: int = int(GameData.get_effective_spear_stat(current_type_id, "perfect_strike"))
-	if perfect_strike_eff >= 1 and _is_dead_center_hit(fish):
-		return 3.0
-	var crit_chance_eff: float = GameData.get_effective_spear_stat(current_type_id, "crit_chance")
-	if crit_chance_eff > 0.0 and randf() < crit_chance_eff:
-		return 2.0
+	var bullseye_eff: float = GameData.get_effective_spear_stat(current_type_id, "bullseye_bonus")
+	if bullseye_eff > 0.0 and _is_dead_center_hit(fish):
+		return 1.0 + bullseye_eff
 	return 1.0
 
 

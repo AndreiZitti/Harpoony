@@ -22,6 +22,37 @@ const BONITO_PACK_HEIGHT := 80.0
 func start_spawning() -> void:
 	active = true
 	spawn_timer = 0.5
+	# Whale Sonar (Heavy keystone): if owned, force-spawn one trophy fish that
+	# this zone can produce, then ask the HUD to mark it for the player.
+	_try_spawn_sonar_trophy()
+
+
+func _try_spawn_sonar_trophy() -> void:
+	var sonar: int = int(GameData.get_effective_spear_stat(&"heavy", "whale_sonar"))
+	if sonar < 1:
+		return
+	var weights: Dictionary = GameData.get_zone_spawn_weights()
+	var trophy_id := ""
+	for key in weights.keys():
+		var sp: SpeciesData = GameData.get_species(StringName(key))
+		if sp != null and sp.size_class == &"trophy":
+			trophy_id = str(key)
+			break
+	if trophy_id == "":
+		return
+	# Pick an off-screen entry point and spawn directly so the player sees the
+	# trophy approach the marked path right at dive start.
+	var viewport := get_viewport_rect().size
+	var from_right := randf() < 0.5
+	var x := viewport.x + 60.0 if from_right else -60.0
+	var y := randf_range(viewport.y * 0.35, viewport.y * 0.7)
+	var fish: Fish = FishScene.instantiate()
+	fish.add_to_group("fish")
+	get_tree().current_scene.add_child(fish)
+	fish.setup(trophy_id, Vector2(x, y), not from_right)
+	var hud = get_tree().current_scene.get_node_or_null("HUD")
+	if hud and hud.has_method("mark_trophy_target"):
+		hud.mark_trophy_target(fish)
 
 
 func stop_spawning() -> void:

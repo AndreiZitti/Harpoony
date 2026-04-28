@@ -33,6 +33,9 @@ signal bag_loadout_changed
 signal whitewhale_caught_signal
 signal dive_number_changed(n: int)
 signal species_discovered(id: StringName)
+# Reload state — fired on transitions only. HUD reads reload_remaining /
+# reload_total each frame for the progress visual.
+signal reload_state_changed(reloading: bool)
 
 # Persistent state
 var cash: float = 0.0
@@ -74,6 +77,13 @@ var dive_cash: float = 0.0
 var oxygen: float = 10.0
 var dive_state: int = DiveState.SURFACE
 var active_spear_count: int = 0  # spears currently in flight or reeling
+# Reload (reshuffle delay between rounds) — base 0.25s per spear in the bag,
+# reduced by the Quick Hands boat upgrade. While `reloading` is true the bag
+# rejects new draws so firing is gated until the round is ready again.
+const RELOAD_PER_SPEAR := 0.5
+var reloading: bool = false
+var reload_remaining: float = 0.0
+var reload_total: float = 0.0
 var dive_shots_fired: int = 0
 var dive_fish_caught: int = 0
 # Per-dive breakdowns for the summary screen.
@@ -82,6 +92,12 @@ var dive_hits_by_spear: Dictionary = {}      # spear_id (String) -> int (fish la
 var dive_catches_by_fish: Dictionary = {}    # species (String) -> { count: int, value: int }
 var dive_zone_id: String = ""
 var dive_start_msec: int = 0
+# Seismic Roar (Heavy keystone): when a Heavy hit fires while the keystone is
+# owned, all defended fish on screen lose their defenses for SEISMIC_DURATION
+# seconds. Fish.deflects_spear() consults is_seismic_active() before applying
+# any defense. Reset to 0 at dive start.
+const SEISMIC_DURATION := 10.0
+var seismic_roar_until_msec: int = 0
 # Snapshotted at end-of-dive so the surface summary can read it.
 var last_dive_cash: int = 0
 var last_dive_shots: int = 0
@@ -100,21 +116,28 @@ var dive_number: int = 0
 var upgrade_levels: Dictionary = {
 	"oxygen": 0,
 	"spear_bag": 0,
+	"reload_speed": 0,
 }
 
 # Upgrade definitions
 var upgrades: Dictionary = {
 	"oxygen": {
 		"name": "Tank Capacity",
-		"description": "+2s dive time per level (base 10s)",
+		"description": "+3s dive time per level (base 30s)",
 		"max_level": 10,
-		"costs": [20, 40, 80, 150, 300, 500, 800, 1200, 2000, 3500],
+		"costs": [40, 80, 160, 320, 600, 1000, 1600, 2400, 3500, 5000],
 	},
 	"spear_bag": {
 		"name": "Spear Bag",
 		"description": "+2 bag capacity per level (base 3)",
 		"max_level": 5,  # 3 base → 13 max
 		"costs": [40, 100, 250, 700, 1800],
+	},
+	"reload_speed": {
+		"name": "Quick Hands",
+		"description": "+25% faster spear reload per level (base 0.5s/spear)",
+		"max_level": 4,  # 1.0× → 2.0× speed (50% reload time)
+		"costs": [80, 220, 550, 1300],
 	},
 }
 
@@ -170,7 +193,7 @@ const SURFACE_PALETTE := {
 func get_oxygen_capacity() -> float:
 	if oxygen_capacity_override >= 0.0:
 		return oxygen_capacity_override
-	return 10.0 + upgrade_levels["oxygen"] * 2.0
+	return 30.0 + upgrade_levels["oxygen"] * 3.0
 
 
 func get_spear_count() -> int:
@@ -454,6 +477,35 @@ func get_effective_spear_stat(id: StringName, field: String) -> float:
 	return base
 
 
+# --- Seismic Roar (Heavy keystone) ---
+
+func is_seismic_active() -> bool:
+	return Time.get_ticks_msec() < seismic_roar_until_msec
+
+
+func trigger_seismic_roar() -> void:
+	seismic_roar_until_msec = Time.get_ticks_msec() + int(SEISMIC_DURATION * 1000.0)
+
+
+# --- Tagging Net (Net keystone) ---
+# Maps fish instance_id -> bonus multiplier. consume_fish_tag returns 0.0 when
+# no tag is set, so callers can branch cheaply. Cleared at dive start.
+const TAGGING_NET_BONUS := 2.0
+var tagged_fish: Dictionary = {}
+
+
+func tag_fish(fish_instance_id: int) -> void:
+	tagged_fish[fish_instance_id] = TAGGING_NET_BONUS
+
+
+func consume_fish_tag(fish_instance_id: int) -> float:
+	if not tagged_fish.has(fish_instance_id):
+		return 0.0
+	var mult: float = float(tagged_fish[fish_instance_id])
+	tagged_fish.erase(fish_instance_id)
+	return mult
+
+
 # --- Bag ---
 
 func _bag_loaded_total() -> int:
@@ -551,8 +603,11 @@ func _build_bag_queue() -> void:
 
 
 # Returns the next spear type id, advancing the queue. Returns &"" if the round
-# is exhausted; caller must wait for spears to return + a reshuffle before firing again.
+# is exhausted OR the bag is mid-reload — caller must wait for spears to return
+# AND the reload timer to expire before firing again.
 func draw_next_spear_type() -> StringName:
+	if reloading:
+		return &""
 	if bag_queue.is_empty():
 		_build_bag_queue()
 	if bag_index >= bag_queue.size():
@@ -567,17 +622,47 @@ func bag_is_exhausted() -> bool:
 	return not bag_queue.is_empty() and bag_index >= bag_queue.size()
 
 
-# Reshuffles only if the round is drained AND no spears are still in flight.
-# Spears call this on arrive; the last one back triggers the new round.
+# Called when the last in-flight spear has returned with the bag exhausted.
+# Starts the reload timer; tick_reload finishes the reshuffle when it hits zero.
 func reshuffle_if_round_complete() -> void:
-	if bag_is_exhausted() and active_spear_count <= 0:
-		bag_queue.shuffle()
-		bag_index = 0
+	if bag_is_exhausted() and active_spear_count <= 0 and not reloading:
+		_start_reload()
 
 
-# Legacy alias kept for any old callers — equivalent to round-complete check.
 func reshuffle_if_exhausted() -> void:
 	reshuffle_if_round_complete()
+
+
+# Sets up the reload timer based on bag size and the Quick Hands upgrade.
+# Each upgrade level adds +25% reload speed (Lv 4 → 50% reload time).
+func _start_reload() -> void:
+	var bag_total: int = max(1, _bag_loaded_total())
+	var lvl: int = int(upgrade_levels.get("reload_speed", 0))
+	var speed_mult: float = 1.0 + lvl * 0.25
+	reload_total = max(0.05, float(bag_total) * RELOAD_PER_SPEAR / speed_mult)
+	reload_remaining = reload_total
+	reloading = true
+	reload_state_changed.emit(true)
+
+
+# Called from main._process while underwater. Counts down and reshuffles the
+# bag when the timer expires so firing reopens.
+func tick_reload(delta: float) -> void:
+	if not reloading:
+		return
+	reload_remaining -= delta
+	if reload_remaining <= 0.0:
+		reload_remaining = 0.0
+		reloading = false
+		bag_queue.shuffle()
+		bag_index = 0
+		reload_state_changed.emit(false)
+
+
+func reload_progress() -> float:
+	if reload_total <= 0.0:
+		return 1.0
+	return clampf(1.0 - (reload_remaining / reload_total), 0.0, 1.0)
 
 
 func note_spear_fired(spear_id: StringName = &"") -> void:
@@ -662,6 +747,11 @@ func start_dive() -> void:
 	dive_catches_by_fish.clear()
 	dive_zone_id = str(get_current_zone().id) if get_current_zone() else ""
 	dive_start_msec = Time.get_ticks_msec()
+	seismic_roar_until_msec = 0
+	tagged_fish.clear()
+	reloading = false
+	reload_remaining = 0.0
+	reload_total = 0.0
 	clamp_bag_loadout()
 	_build_bag_queue()
 	set_oxygen(get_oxygen_capacity())

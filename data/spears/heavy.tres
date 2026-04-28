@@ -6,7 +6,7 @@
 script = ExtResource("1")
 id = &"heavy"
 display_name = "Heavy Harpoon"
-description = "Slow, brutal. Punches through inflation, shells and shields."
+description = "Trophy & defense specialist. Always ignores defenses. Destroys small & medium fish on impact."
 color = Color(0.85, 0.65, 0.45, 1)
 icon_glyph = "▎"
 unlock_cost = 1500
@@ -15,44 +15,82 @@ reel_speed_mult = 0.85
 hit_radius_bonus = 4.0
 value_bonus = 1.2
 pierce_count = 1
+penetration_depth = 0
+black_hole_tip = 0
+seismic_roar = 0
+whale_sonar = 0
 net_radius = 0.0
 net_max_catch = 1
 bypasses_defenses = true
 upgrades = {
 "speed_mult": {
-    "name": "Reinforced Shaft",
-    "description": "+10% travel speed per level.",
-    "icon": "➤",
-    "max_level": 4,
-    "costs": [80, 200, 500, 1200],
-    "field": "speed_mult",
-    "step": 0.1
-},
-"crit_chance": {
-    "name": "Sharp Tip",
-    "description": "+5% chance per level for 2x cash on hit.",
-    "icon": "◆",
+    "name": "Quick Reel",
+    "description": "+10% cast & reel speed per level.",
+    "icon": "≣",
     "max_level": 5,
-    "costs": [200, 500, 1000, 2000, 4000],
-    "field": "crit_chance",
-    "step": 0.05
+    "costs": [80, 200, 500, 1200, 2800],
+    "field": "speed_mult",
+    "step": 0.1,
+    "keystone": false
 },
-"pierce_count": {
-    "name": "Drill Tip",
-    "description": "+1 fish pierced per shot, per level.",
-    "icon": "✦",
-    "max_level": 3,
-    "costs": [400, 1000, 2500],
-    "field": "pierce_count",
-    "step": 1
+"hit_radius_bonus": {
+    "name": "Sharper Head",
+    "description": "+5 hit radius per level.",
+    "icon": "◎",
+    "max_level": 5,
+    "costs": [70, 180, 450, 1000, 2400],
+    "field": "hit_radius_bonus",
+    "step": 5.0,
+    "keystone": false
 },
 "value_bonus": {
     "name": "Trophy Bonus",
-    "description": "+15% cash per hit, per level.",
+    "description": "+15% cash per catch, per level.",
     "icon": "✱",
-    "max_level": 4,
-    "costs": [300, 700, 1500, 3500],
+    "max_level": 5,
+    "costs": [200, 500, 1200, 2800, 6000],
     "field": "value_bonus",
-    "step": 0.15
+    "step": 0.15,
+    "keystone": false
+},
+"penetration_depth": {
+    "name": "Penetration",
+    "description": "Heavy passes through +1 small/medium fish per level on its way to a large target. Destroyed fish drop mini-cash.",
+    "icon": "↠",
+    "max_level": 3,
+    "costs": [400, 1000, 2400],
+    "field": "penetration_depth",
+    "step": 1,
+    "keystone": false
+},
+"black_hole_tip": {
+    "name": "Black Hole Tip",
+    "description": "Impact pulls all small/medium fish toward the hit point and insta-catches them.",
+    "icon": "●",
+    "max_level": 1,
+    "costs": [3500],
+    "field": "black_hole_tip",
+    "step": 1,
+    "keystone": true
+},
+"seismic_roar": {
+    "name": "Seismic Roar",
+    "description": "Heavy hit disables every defended fish's defenses for 10 seconds.",
+    "icon": "≋",
+    "max_level": 1,
+    "costs": [3000],
+    "field": "seismic_roar",
+    "step": 1,
+    "keystone": true
+},
+"whale_sonar": {
+    "name": "Whale Sonar",
+    "description": "Each dive spawns a guaranteed trophy fish, marked on the HUD.",
+    "icon": "✺",
+    "max_level": 1,
+    "costs": [4500],
+    "field": "whale_sonar",
+    "step": 1,
+    "keystone": true
 }
 }

@@ -11,4 +11,4 @@ unlock_cost = 2200
 water_top = Color(0.01, 0.02, 0.08, 1)
 water_bottom = Color(0.0, 0.0, 0.02, 1)
 ambient_tint = Color(0.4, 0.55, 0.95, 1)
-spawn_weights = {"tuna": 0.25, "marlin": 0.25, "jellyfish": 0.2, "triggerfish": 0.15, "pufferfish": 0.1, "whitewhale": 0.05}
+spawn_weights = {"lanternfish": 0.3, "anglerfish": 0.2, "triggerfish": 0.2, "marlin": 0.2, "whitewhale": 0.1}
