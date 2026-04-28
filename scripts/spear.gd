@@ -27,6 +27,11 @@ var _line_time: float = 0.0
 var _hits_this_flight: int = 0
 const MAX_FLIGHT_DISTANCE = 600.0
 const STANDING_WAVE_DURATION := 3.0
+# Net unfurls over its first ~0.4s of flight: visual + collision sweep both use
+# the interpolated radius, so a too-early hit catches a smaller area. Rewards
+# letting the net fly toward the school instead of point-blank casting.
+const NET_GROW_TIME := 0.4
+var _flight_time: float = 0.0
 var _standing_wave_remaining: float = 0.0
 var _standing_wave_max_catch: int = 1
 var _standing_wave_allowed: Array = []
@@ -190,7 +195,12 @@ func _handle_bounce(fish: Fish) -> void:
 	Sfx.bounce()
 	if fish.has_method("on_bounce"):
 		fish.on_bounce(self)
-	state = State.REELING_MISS
+	# If the spear already had pierced catches on the line, don't drop them on
+	# the bounce — reel everything home as a multi-catch instead.
+	if not attached_fish_array.is_empty():
+		state = State.NET_REELING
+	else:
+		state = State.REELING_MISS
 	monitoring = false
 	_sync_hud()
 
@@ -214,6 +224,8 @@ func fire(dir: Vector2) -> bool:
 	state = State.FLYING
 	monitoring = true
 	_hits_this_flight = 0
+	_flight_time = 0.0
+	attached_fish_array.clear()
 	GameData.note_spear_fired(current_type_id)
 	Sfx.fire()
 	_sync_hud()
@@ -230,48 +242,108 @@ func _effective_reel_speed() -> float:
 
 
 func _pierce_through(fish: Fish) -> void:
+	# Pierce now hooks the fish onto the spear and drags it forward — when the
+	# pierce cap is reached (or the spear runs out of distance), every speared
+	# fish reels back together via the NET_REELING path. Earlier behaviour was
+	# instant kills along the line, which felt like the fish disappeared.
 	fish.on_speared(self)
-	var base := fish.get_cash_value()
-	base = int(round(base * _value_multiplier(fish)))
-	var tag_mult: float = GameData.consume_fish_tag(fish.get_instance_id())
-	if tag_mult > 0.0:
-		base = int(round(base * tag_mult))
-	var result := GameData.register_hit(base)
-	var arrive_pos := fish.global_position
-	var species := fish.species
-	# Trophy hook — emits whitewhale_caught_signal on first catch (consumed by ending screen).
-	if fish.size_class == Fish.SIZE_TROPHY:
-		GameData.note_trophy_caught(StringName(species))
-	GameData.add_dive_cash(result["value"])
-	GameData.note_fish_caught(current_type_id, StringName(species), int(result["value"]))
-	var hud = get_tree().current_scene.get_node_or_null("HUD")
-	if hud and hud.has_method("spawn_cash_popup"):
-		hud.spawn_cash_popup(result["value"], arrive_pos, species)
-	_spawn_hit_burst(arrive_pos, fish.color)
-	fish.queue_free()
+	attached_fish_array.append(fish)
+	_spawn_hit_burst(fish.global_position, fish.color)
+	Sfx.hit()
 	_hits_this_flight += 1
-	# Stop piercing after the cap.
 	var cap: int = int(GameData.get_effective_spear_stat(current_type_id, "pierce_count"))
 	if _hits_this_flight >= cap:
-		state = State.REELING_MISS
+		state = State.NET_REELING
 		monitoring = false
+		var main = get_tree().current_scene
+		if main and main.has_method("hit_stop"):
+			main.hit_stop()
 		_sync_hud()
 
 
+# Capacity slots a fish takes inside the net. Net is tuned around small schools
+# — bigger fish "fill" the net much faster, so a single medium catch leaves
+# little room for additional small companions. Big/defender targets use the
+# whole net almost on their own.
+#   SMALL  → 1 slot   (sardine, lanternfish, bonito)
+#   MEDIUM → 5 slots  (grouper, jelly, squid, anglerfish, mahi, puffer)
+#   LARGE / TROPHY → 10 slots ("defender type" — triggerfish, blockfish, etc.)
+func _net_slot_cost(f: Fish) -> int:
+	if f == null or not is_instance_valid(f):
+		return 1
+	match f.size_class:
+		Fish.SIZE_MEDIUM:
+			return 5
+		Fish.SIZE_LARGE, Fish.SIZE_TROPHY:
+			return 10
+		_:
+			return 1
+
+
+# Effective net radius right now. While flying, the net unfurls from 0 to full
+# over NET_GROW_TIME so close-range hits use a smaller catch zone.
+func _net_current_radius() -> float:
+	var full: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
+	if current_type_id != &"net":
+		return full
+	if state != State.FLYING:
+		return full
+	var grow: float = clampf(_flight_time / NET_GROW_TIME, 0.0, 1.0)
+	return full * grow
+
+
+# Per-frame check while a Net spear is flying — finds the first fish inside
+# the unfurled mesh radius and triggers a capture. Without this the player
+# only catches fish that physically touch the tip's tiny collision shape;
+# with it, anything the visible web touches gets netted.
+func _net_zone_sweep() -> void:
+	if state != State.FLYING:
+		return
+	var r: float = _net_current_radius()
+	if r <= 4.0:
+		return  # net hasn't unfurled yet — fall back to tip collision
+	var r2: float = r * r
+	var closest_fish: Fish = null
+	var closest_d: float = INF
+	for n in get_tree().get_nodes_in_group("fish"):
+		var f := n as Fish
+		if f == null or not is_instance_valid(f) or f.speared:
+			continue
+		var d: float = global_position.distance_squared_to(f.global_position)
+		if d > r2:
+			continue
+		if d < closest_d:
+			closest_d = d
+			closest_fish = f
+	if closest_fish == null:
+		return
+	# Defended fish still bounce on the trigger contact — Net respects defenses.
+	if not (current_type and current_type.bypasses_defenses) \
+			and closest_fish.has_method("deflects_spear") and closest_fish.deflects_spear(self):
+		_handle_bounce(closest_fish)
+		return
+	if int(GameData.get_effective_spear_stat(&"net", "standing_wave")) >= 1:
+		_net_start_standing_wave(closest_fish)
+	else:
+		_net_capture(closest_fish)
+
+
 func _net_capture(first_fish: Fish) -> void:
-	var radius: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
+	var radius: float = _net_current_radius()
 	var max_catch: int = int(GameData.get_effective_spear_stat(current_type_id, "net_max_catch"))
 	var allowed := current_type.catch_size_classes.duplicate()
 	if int(GameData.get_effective_spear_stat(current_type_id, "catches_medium")) == 1 and not allowed.has(&"medium"):
 		allowed.append(&"medium")
 	var has_tagging: bool = int(GameData.get_effective_spear_stat(&"net", "tagging_net")) >= 1
 	attached_fish_array.clear()
+	var capacity_used: int = 0
 	# Track every fish that was inside the radius — used by Tagging Net to mark
 	# escapees (those skipped due to cap or size mismatch).
 	var in_radius: Array = []
-	if allowed.has(first_fish.size_class):
+	if allowed.has(first_fish.size_class) and capacity_used + _net_slot_cost(first_fish) <= max_catch:
 		first_fish.on_speared(self)
 		attached_fish_array.append(first_fish)
+		capacity_used += _net_slot_cost(first_fish)
 		_spawn_hit_burst(first_fish.global_position, first_fish.color)
 	in_radius.append(first_fish)
 	var center := global_position
@@ -286,12 +358,14 @@ func _net_capture(first_fish: Fish) -> void:
 		if f.global_position.distance_squared_to(center) > r2:
 			continue
 		in_radius.append(f)
-		if attached_fish_array.size() >= max_catch:
-			continue  # over cap — don't capture, but still in_radius for tagging
 		if not allowed.has(f.size_class):
 			continue
+		var cost: int = _net_slot_cost(f)
+		if capacity_used + cost > max_catch:
+			continue  # not enough room — counts as escape for Tagging Net
 		f.on_speared(self)
 		attached_fish_array.append(f)
+		capacity_used += cost
 		_spawn_hit_burst(f.global_position, f.color)
 	# Tag any in-radius fish we didn't actually capture. The award path consumes
 	# the tag for a 2× payout when any spear catches them later in the dive.
@@ -323,7 +397,7 @@ func _net_start_standing_wave(first_fish: Fish) -> void:
 	if int(GameData.get_effective_spear_stat(current_type_id, "catches_medium")) == 1 and not allowed.has(&"medium"):
 		allowed.append(&"medium")
 	attached_fish_array.clear()
-	if allowed.has(first_fish.size_class):
+	if allowed.has(first_fish.size_class) and _net_slot_cost(first_fish) <= max_catch:
 		first_fish.on_speared(self)
 		attached_fish_array.append(first_fish)
 		_spawn_hit_burst(first_fish.global_position, first_fish.color)
@@ -339,11 +413,14 @@ func _net_start_standing_wave(first_fish: Fish) -> void:
 
 func _process_standing_wave(delta: float) -> void:
 	_standing_wave_remaining -= delta
-	if attached_fish_array.size() < _standing_wave_max_catch:
+	var capacity_used: int = 0
+	for f0 in attached_fish_array:
+		capacity_used += _net_slot_cost(f0)
+	if capacity_used < _standing_wave_max_catch:
 		var radius: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
 		var r2 := radius * radius
 		for n in get_tree().get_nodes_in_group("fish"):
-			if attached_fish_array.size() >= _standing_wave_max_catch:
+			if capacity_used >= _standing_wave_max_catch:
 				break
 			var f := n as Fish
 			if f == null or not is_instance_valid(f) or f.speared:
@@ -352,10 +429,14 @@ func _process_standing_wave(delta: float) -> void:
 				continue
 			if f.global_position.distance_squared_to(global_position) > r2:
 				continue
+			var cost: int = _net_slot_cost(f)
+			if capacity_used + cost > _standing_wave_max_catch:
+				continue
 			f.on_speared(self)
 			attached_fish_array.append(f)
+			capacity_used += cost
 			_spawn_hit_burst(f.global_position, f.color)
-	if _standing_wave_remaining <= 0.0 or attached_fish_array.size() >= _standing_wave_max_catch:
+	if _standing_wave_remaining <= 0.0 or capacity_used >= _standing_wave_max_catch:
 		state = State.NET_REELING
 		_hits_this_flight = attached_fish_array.size()
 		_sync_hud()
@@ -409,12 +490,26 @@ func _process(delta: float) -> void:
 			var step = speed * delta
 			global_position += flight_dir * step
 			flight_distance_remaining -= step
+			_flight_time += delta
+			# Pierce-attached fish ride along on the spear tip while flying.
+			if not attached_fish_array.is_empty():
+				_position_net_fish(delta)
+			# Net catch-zone sweep — any fish inside the *visible* mesh radius
+			# triggers a capture, not just one touched by the spear tip. Keeps
+			# the catch area honest with the drawn web.
+			if current_type_id == &"net":
+				_net_zone_sweep()
 			if flight_distance_remaining <= 0.0 or _is_out_of_bounds():
-				state = State.REELING_MISS
+				if not attached_fish_array.is_empty():
+					# Out of distance with pierce-caught fish on the line —
+					# reel them home as a multi-catch.
+					state = State.NET_REELING
+				else:
+					state = State.REELING_MISS
+					if _hits_this_flight == 0:
+						GameData.register_miss()
+						Sfx.miss()
 				monitoring = false
-				if _hits_this_flight == 0:
-					GameData.register_miss()
-					Sfx.miss()
 				_sync_hud()
 		State.REELING_MISS:
 			var speed = _effective_speed()
@@ -595,17 +690,28 @@ func _draw() -> void:
 		var draw_h: float = draw_w * aspect
 		var rect := Rect2(-draw_w * 0.5, -draw_h * 0.5, draw_w, draw_h)
 		draw_texture_rect(tex, rect, false)
-	# Net AoE preview during flight — keep the procedural hoop overlay so the
-	# upgrade-driven net_radius is still legible at a glance.
+	# Net mesh — polar grid with concentric rings + radial spokes so the AoE
+	# reads as a "web" rather than a thin hoop. While flying, the radius
+	# unfurls from 0 to the upgraded full size over NET_GROW_TIME.
 	if current_type_id == &"net" and (state == State.FLYING or state == State.NET_STANDING_WAVE):
 		var hoop_color := current_type.color if current_type else Color(0.5, 0.85, 1.0)
-		var r: float = GameData.get_effective_spear_stat(current_type_id, "net_radius")
+		var r: float = _net_current_radius()
 		var hoop_center := Vector2(SPEAR_DRAW_LENGTH * 0.5, 0.0)
-		draw_arc(hoop_center, r, 0.0, TAU, 32, Color(hoop_color.r, hoop_color.g, hoop_color.b, 0.25), 1.5)
-		for i in 8:
-			var a := float(i) / 8.0 * TAU
-			var p := Vector2(cos(a), sin(a)) * r
-			draw_line(hoop_center, hoop_center + p, Color(hoop_color.r, hoop_color.g, hoop_color.b, 0.12), 1.0)
+		if r > 1.0:
+			var col_rim := Color(hoop_color.r, hoop_color.g, hoop_color.b, 0.55)
+			var col_inner := Color(hoop_color.r, hoop_color.g, hoop_color.b, 0.28)
+			var col_thread := Color(hoop_color.r, hoop_color.g, hoop_color.b, 0.22)
+			# Inner mesh rings (3 concentric).
+			for k in 3:
+				var rr: float = r * (0.35 + 0.27 * k)
+				draw_arc(hoop_center, rr, 0.0, TAU, 24, col_inner, 1.0, true)
+			# Outer rim — thicker, brighter so the catch boundary is unambiguous.
+			draw_arc(hoop_center, r, 0.0, TAU, 36, col_rim, 2.0, true)
+			# 12 radial threads from center to rim.
+			for i in 12:
+				var a := float(i) / 12.0 * TAU
+				var p := Vector2(cos(a), sin(a)) * r
+				draw_line(hoop_center, hoop_center + p, col_thread, 1.0, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

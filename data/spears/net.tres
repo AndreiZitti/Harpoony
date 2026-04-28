@@ -16,7 +16,7 @@ hit_radius_bonus = 0.0
 value_bonus = 1.0
 pierce_count = 1
 net_radius = 60.0
-net_max_catch = 3
+net_max_catch = 5
 catch_size_classes = Array[StringName]([&"small", &"medium"])
 lure_pulse = 0
 standing_wave = 0
@@ -55,12 +55,12 @@ upgrades = {
 },
 "net_max_catch": {
     "name": "Wider Mesh",
-    "description": "+1 fish caught per cast, per level.",
+    "description": "+3 net capacity per level. Small fish = 1 slot, medium = 5, defender = 10.",
     "icon": "⊞",
     "max_level": 5,
     "costs": [150, 400, 1000, 2200, 4800],
     "field": "net_max_catch",
-    "step": 1,
+    "step": 3,
     "keystone": false
 },
 "lure_pulse": {

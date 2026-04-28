@@ -45,7 +45,9 @@ func _ready() -> void:
 
 	upgrade_shop.next_dive_pressed.connect(_on_dive_pressed)
 	upgrade_shop.new_game_requested.connect(_on_session_reset)
-	oxygen_timer.timeout.connect(_on_oxygen_tick)
+	# Oxygen drain is now driven by _process delta (smooth bar). The legacy
+	# timer is kept stopped — leaving it in the scene tree for save-compat.
+	oxygen_timer.stop()
 
 	GameData.set_dive_state(GameData.DiveState.SURFACE)
 	if diver.has_method("set_visible_in_water"):
@@ -246,6 +248,7 @@ func _process(delta: float) -> void:
 
 		GameData.DiveState.UNDERWATER:
 			GameData.tick_reload(delta)
+			_drain_oxygen(delta)
 
 		GameData.DiveState.RESURFACING:
 			travel_timer += delta
@@ -270,22 +273,23 @@ func _on_dive_pressed() -> void:
 
 func _enter_underwater() -> void:
 	GameData.set_dive_state(GameData.DiveState.UNDERWATER)
-	oxygen_timer.start()
 	if fish_spawner.has_method("start_spawning"):
 		fish_spawner.start_spawning()
 	if diver.has_method("enable_fishing"):
 		diver.enable_fishing(true)
 
 
-func _on_oxygen_tick() -> void:
+func _drain_oxygen(delta: float) -> void:
 	if GameData.dive_state != GameData.DiveState.UNDERWATER:
 		return
 	# Dev mode: keep the tank topped up so the dive never auto-ends.
 	if GameData.dev_infinite_oxygen:
 		GameData.set_oxygen(GameData.get_oxygen_capacity())
 		return
-	GameData.set_oxygen(GameData.oxygen - 1.0)
-	if GameData.oxygen <= 0.0:
+	GameData.set_oxygen(GameData.oxygen - delta)
+	# Don't bail mid-reel — let any in-flight spear finish so the player keeps
+	# the catch. Resurface fires after the last spear comes home.
+	if GameData.oxygen <= 0.0 and GameData.active_spear_count <= 0:
 		_begin_resurface()
 
 

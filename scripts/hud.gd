@@ -25,6 +25,12 @@ var trophy_marker: Label = null
 var reload_label: Label = null
 var reload_bar: ProgressBar = null
 
+const SPEAR_TEXTURES := {
+	&"normal": preload("res://assets/spears/normal.png"),
+	&"net": preload("res://assets/spears/net.png"),
+	&"heavy": preload("res://assets/spears/heavy.png"),
+}
+
 const SPECIES_COLOR = {
 	"sardine": Color(0.85, 0.92, 1.0),
 	"grouper": Color(1.0, 0.75, 0.4),
@@ -329,15 +335,28 @@ func _on_cash_changed(_amount: float) -> void:
 		dive_cash_label.text = ""
 
 
+const OXYGEN_COL_FULL := Color(0.30, 0.85, 0.65)   # calm green
+const OXYGEN_COL_WARN := Color(1.00, 0.78, 0.30)   # amber
+const OXYGEN_COL_CRIT := Color(1.00, 0.30, 0.30)   # red
+const OXYGEN_FLASH_THRESHOLD := 5.0                # seconds — pulse the bar
+
+
 func _on_oxygen_changed(value: float) -> void:
 	oxygen_bar.max_value = GameData.get_oxygen_capacity()
 	oxygen_bar.value = value
-	oxygen_label.text = "OXYGEN %.0fs" % value
-	var ratio = value / max(0.001, GameData.get_oxygen_capacity())
+	oxygen_label.text = "OXYGEN %.1fs" % value
+	# Three bands keyed off remaining *seconds*, not ratio — feel is consistent
+	# even after Tank Capacity upgrades push the cap higher.
+	var color := OXYGEN_COL_FULL
+	if value <= OXYGEN_FLASH_THRESHOLD:
+		color = OXYGEN_COL_CRIT
+	elif value <= OXYGEN_FLASH_THRESHOLD * 2.0:
+		color = OXYGEN_COL_WARN
 	var bar_fg = StyleBoxFlat.new()
-	bar_fg.bg_color = Color(1.0, 0.3, 0.3).lerp(Color(0.3, 0.7, 1.0), ratio)
+	bar_fg.bg_color = color
 	bar_fg.set_corner_radius_all(6)
 	oxygen_bar.add_theme_stylebox_override("fill", bar_fg)
+	oxygen_label.add_theme_color_override("font_color", color.lightened(0.15))
 
 
 func _on_dive_state_changed(state: int) -> void:
@@ -368,6 +387,17 @@ func _build_queue_chip(idx: int) -> PanelContainer:
 	box.border_color = Color(0.5, 0.6, 0.8, 0.5)
 	box.set_content_margin_all(4)
 	panel.add_theme_stylebox_override("panel", box)
+	# Spear sprite — pixel art, NEAREST filtering, fits the chip with margin.
+	var sprite := TextureRect.new()
+	sprite.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sprite.name = "Sprite"
+	panel.add_child(sprite)
+	# Empty-slot fallback glyph — only visible when there's no spear queued at
+	# this index (round drained, waiting for reshuffle).
 	var lbl = Label.new()
 	lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -375,6 +405,7 @@ func _build_queue_chip(idx: int) -> PanelContainer:
 	lbl.add_theme_font_size_override("font_size", 24 if idx == 0 else 18)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lbl.name = "Glyph"
+	lbl.visible = false
 	panel.add_child(lbl)
 	return panel
 
@@ -392,6 +423,7 @@ func _refresh_queue_preview() -> void:
 	for i in queue_chips.size():
 		var chip := queue_chips[i]
 		var glyph := chip.get_node("Glyph") as Label
+		var sprite := chip.get_node("Sprite") as TextureRect
 		var sb = StyleBoxFlat.new()
 		sb.set_corner_radius_all(8)
 		sb.set_border_width_all(2)
@@ -400,15 +432,22 @@ func _refresh_queue_preview() -> void:
 			var id: StringName = ids[i]
 			var t := GameData.get_spear_type(id)
 			var c: Color = t.color if t else Color(0.6, 0.6, 0.7)
-			glyph.text = t.icon_glyph if t else "?"
-			glyph.add_theme_color_override("font_color", c)
+			sprite.texture = SPEAR_TEXTURES.get(id, null)
+			sprite.visible = sprite.texture != null
+			glyph.visible = sprite.texture == null
+			if not sprite.visible:
+				glyph.text = t.icon_glyph if t else "?"
+				glyph.add_theme_color_override("font_color", c)
 			sb.bg_color = Color(c.r * 0.18, c.g * 0.18, c.b * 0.18, 0.95)
 			sb.border_color = c
 			# First chip pops with full intensity.
 			if i == 0:
 				sb.bg_color = Color(c.r * 0.28, c.g * 0.28, c.b * 0.28, 0.95)
 		else:
-			# Empty slot — round drained, waiting for spear to return.
+			# Empty slot — round drained, waiting for reload to finish.
+			sprite.texture = null
+			sprite.visible = false
+			glyph.visible = true
 			glyph.text = "·"
 			glyph.add_theme_color_override("font_color", Color(0.4, 0.45, 0.55))
 			sb.bg_color = Color(0.06, 0.07, 0.10, 0.6)
@@ -510,6 +549,17 @@ func _process(delta: float) -> void:
 		# Subtle pulse so the eye picks it up without it being distracting.
 		var pulse := 0.65 + 0.35 * sin(session_time * 8.0)
 		reload_label.modulate.a = pulse
+	# Oxygen flash — last few seconds the bar pulses brightness so the player
+	# notices in peripheral vision. Frequency ramps up the lower it gets.
+	if oxygen_bar and GameData.dive_state == GameData.DiveState.UNDERWATER:
+		if GameData.oxygen <= OXYGEN_FLASH_THRESHOLD and GameData.oxygen > 0.0:
+			var freq: float = 6.0 + (OXYGEN_FLASH_THRESHOLD - GameData.oxygen) * 1.5
+			var alpha: float = 0.55 + 0.45 * absf(sin(session_time * freq))
+			oxygen_bar.modulate.a = alpha
+			oxygen_label.modulate.a = alpha
+		else:
+			oxygen_bar.modulate.a = 1.0
+			oxygen_label.modulate.a = 1.0
 	# Trophy sonar marker — bob above the marked fish until it despawns.
 	if trophy_marker:
 		if trophy_target != null and is_instance_valid(trophy_target) and not (trophy_target is Fish and (trophy_target as Fish).speared):

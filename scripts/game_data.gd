@@ -606,6 +606,10 @@ func _build_bag_queue() -> void:
 # is exhausted OR the bag is mid-reload — caller must wait for spears to return
 # AND the reload timer to expire before firing again.
 func draw_next_spear_type() -> StringName:
+	# Block new shots once the tank is dry — any in-flight spears finish their
+	# reel, then main._drain_oxygen triggers the resurface.
+	if oxygen <= 0.0:
+		return &""
 	if reloading:
 		return &""
 	if bag_queue.is_empty():
