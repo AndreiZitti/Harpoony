@@ -4,7 +4,11 @@ const DEV_TUNING_PATH := "user://dev_tuning.json"
 const RUN_HISTORY_PATH := "user://run_history.json"
 const RUN_HISTORY_MAX := 200  # cap so the file doesn't grow forever
 const DISCOVERED_SPECIES_PATH := "user://discovered_species.json"
+# Player progression: cash, unlocks, upgrade levels, bag loadout, dive count.
+# Written only at DiveState.SURFACE so a mid-dive crash can't corrupt it.
+const PROGRESS_PATH := "user://progress.json"
 var _dev_save_timer: Timer = null
+var _progress_save_timer: Timer = null
 
 
 func _ready() -> void:
@@ -45,6 +49,10 @@ var whitewhale_caught: bool = false
 # --- Dev-mode tunables (set via DevPanel; safe defaults preserve old behavior) ---
 var dev_infinite_oxygen: bool = false       # main.gd's oxygen tick respects this
 var dev_skip_shop: bool = false              # main.gd's _enter_surface re-dives instead
+# One-shot flags consumed by main._enter_underwater so a "Just the whale" /
+# "Empty scene" scenario can produce its desired dive setup. Cleared after use.
+var dev_spawn_whale_on_dive: bool = false
+var dev_suppress_spawns_on_dive: bool = false
 var oxygen_capacity_override: float = -1.0   # ≥0 overrides level-based capacity
 var bag_capacity_override: int = -1          # ≥0 overrides level-based bag size
 var dive_travel_duration: float = 1.5        # was a const in main.gd; tunable here
@@ -272,6 +280,7 @@ func unlock_next_zone() -> bool:
 		cash -= zones[unlocked_zone_index].unlock_cost
 	cash_changed.emit(cash)
 	zone_unlocked.emit(unlocked_zone_index)
+	request_progress_save()
 	return true
 
 
@@ -407,6 +416,7 @@ func unlock_spear_type(id: StringName) -> bool:
 	unlocked_spear_types.append(id)
 	cash_changed.emit(cash)
 	spear_type_unlocked.emit(id)
+	request_progress_save()
 	return true
 
 
@@ -459,6 +469,7 @@ func buy_spear_upgrade(id: StringName, key: String) -> bool:
 	spear_upgrade_levels[id][key] = level + 1
 	cash_changed.emit(cash)
 	spear_upgrade_changed.emit(id, key, level + 1)
+	request_progress_save()
 	return true
 
 
@@ -532,6 +543,7 @@ func increment_bag(id: StringName) -> bool:
 		return false
 	bag_loadout[id] = int(bag_loadout.get(id, 0)) + 1
 	bag_loadout_changed.emit()
+	request_progress_save()
 	return true
 
 
@@ -541,6 +553,7 @@ func decrement_bag(id: StringName) -> bool:
 		return false
 	bag_loadout[id] = current - 1
 	bag_loadout_changed.emit()
+	request_progress_save()
 	return true
 
 
@@ -800,6 +813,9 @@ func finish_dive() -> void:
 	active_spear_count = 0
 	cash_changed.emit(cash)
 	set_dive_state(DiveState.SURFACE)
+	# Persist progression: cash just rolled in, dive_number advanced, any in-dive
+	# unlock signals fired. Debounced so a chain of post-dive emits collapses.
+	request_progress_save()
 
 
 # --- Run history persistence ---
@@ -834,6 +850,142 @@ func clear_run_history() -> void:
 	save_run_history()
 
 
+# --- Player progression persistence (progress.json) ---
+#
+# This is the *real* save: cash, unlocks, upgrade levels, bag loadout, dive
+# number. Distinct from dev_tuning.json (which is the dev panel's scratchpad)
+# and from run_history / discovered_species (which are dive-log + bestiary).
+# Saved only at DiveState.SURFACE so a mid-dive force-quit can't corrupt it.
+
+func progress_exists() -> bool:
+	return FileAccess.file_exists(PROGRESS_PATH)
+
+
+func _setup_progress_save_timer() -> void:
+	if _progress_save_timer != null:
+		return
+	_progress_save_timer = Timer.new()
+	_progress_save_timer.one_shot = true
+	_progress_save_timer.wait_time = 0.4
+	_progress_save_timer.timeout.connect(save_progress)
+	add_child(_progress_save_timer)
+
+
+func request_progress_save() -> void:
+	# Restarting an active timer collapses N rapid changes into a single write.
+	# Skip mid-dive — only the surface state is consistent enough to persist.
+	# Skip in cheat/dev mode — Dev Mode is a sandbox and must not corrupt the
+	# player's saved progression.
+	if dive_state != DiveState.SURFACE:
+		return
+	if cheat_mode:
+		return
+	_setup_progress_save_timer()
+	_progress_save_timer.start()
+
+
+func save_progress() -> void:
+	# Refuse to write anything but a clean surface snapshot. Belt-and-braces with
+	# request_progress_save's check.
+	if dive_state != DiveState.SURFACE:
+		return
+	if cheat_mode:
+		return
+	var data := {
+		"version": 1,
+		"cash": cash,
+		"unlocked_zone_index": unlocked_zone_index,
+		"selected_zone_index": selected_zone_index,
+		"unlocked_spear_types": _string_array(unlocked_spear_types),
+		"spear_upgrade_levels": spear_upgrade_levels.duplicate(true),
+		"upgrade_levels": upgrade_levels.duplicate(true),
+		"bag_loadout": _string_keyed(bag_loadout),
+		"dive_number": dive_number,
+		"whitewhale_caught": whitewhale_caught,
+	}
+	var f := FileAccess.open(PROGRESS_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Failed to open progress save path")
+		return
+	f.store_string(JSON.stringify(data, "  "))
+	f.close()
+
+
+func load_progress() -> bool:
+	# Returns true if a save was loaded. Caller is responsible for emitting the
+	# UI-refresh signals (cash_changed, zone_changed, spear_type_unlocked, …)
+	# since those listeners may not be hooked up at the moment we load.
+	if not FileAccess.file_exists(PROGRESS_PATH):
+		return false
+	var f := FileAccess.open(PROGRESS_PATH, FileAccess.READ)
+	if f == null:
+		return false
+	var raw := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(raw)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("Progress save invalid; ignoring")
+		return false
+	var data: Dictionary = parsed
+	cash = float(data.get("cash", cash))
+	unlocked_zone_index = int(data.get("unlocked_zone_index", unlocked_zone_index))
+	selected_zone_index = int(data.get("selected_zone_index", selected_zone_index))
+	var ust = data.get("unlocked_spear_types", [])
+	if typeof(ust) == TYPE_ARRAY:
+		unlocked_spear_types = []
+		for s in ust:
+			unlocked_spear_types.append(StringName(str(s)))
+		if unlocked_spear_types.is_empty():
+			unlocked_spear_types = [&"normal"]
+	# Merge spear upgrade levels — preserve schema for unknown saved keys.
+	var sul = data.get("spear_upgrade_levels", {})
+	if typeof(sul) == TYPE_DICTIONARY:
+		for spear_id in sul.keys():
+			if not spear_upgrade_levels.has(spear_id):
+				spear_upgrade_levels[spear_id] = {}
+			for k in sul[spear_id].keys():
+				spear_upgrade_levels[spear_id][k] = int(sul[spear_id][k])
+	# Global upgrades — only copy known keys so the schema stays sane.
+	var ul = data.get("upgrade_levels", {})
+	if typeof(ul) == TYPE_DICTIONARY:
+		for k in upgrade_levels.keys():
+			if ul.has(k):
+				upgrade_levels[k] = int(ul[k])
+	# Bag loadout — keys come back as String; convert to StringName.
+	var bl = data.get("bag_loadout", {})
+	if typeof(bl) == TYPE_DICTIONARY:
+		bag_loadout.clear()
+		for k in bl.keys():
+			bag_loadout[StringName(str(k))] = int(bl[k])
+	dive_number = int(data.get("dive_number", dive_number))
+	whitewhale_caught = bool(data.get("whitewhale_caught", whitewhale_caught))
+	# Reset oxygen to capacity since we just loaded — surface state.
+	set_oxygen(get_oxygen_capacity())
+	return true
+
+
+# Wipe the player save: progress.json, run_history.json, discovered_species.json.
+# Does NOT touch dev_tuning.json — dev tuning is a separate concern.
+func wipe_save_files() -> void:
+	for path in [PROGRESS_PATH, RUN_HISTORY_PATH, DISCOVERED_SPECIES_PATH]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+
+
+func _string_array(arr: Array) -> Array:
+	var out := []
+	for v in arr:
+		out.append(str(v))
+	return out
+
+
+func _string_keyed(d: Dictionary) -> Dictionary:
+	var out := {}
+	for k in d.keys():
+		out[str(k)] = d[k]
+	return out
+
+
 # --- Shop ---
 
 func can_buy_upgrade(key: String) -> bool:
@@ -854,6 +1006,7 @@ func buy_upgrade(key: String) -> bool:
 		cash -= upgrades[key]["costs"][level]
 	upgrade_levels[key] += 1
 	cash_changed.emit(cash)
+	request_progress_save()
 	return true
 
 
@@ -1016,8 +1169,11 @@ func request_dev_tuning_save() -> void:
 
 
 func save_dev_tuning() -> void:
+	# Note: spear_upgrade_levels is intentionally NOT saved here — it lives in
+	# progress.json as part of player progression. Earlier versions wrote it
+	# into this file and it leaked into Normal mode on every relaunch.
 	var data := {
-		"version": 1,
+		"version": 2,
 		"game": {
 			"dev_infinite_oxygen": dev_infinite_oxygen,
 			"dev_skip_shop": dev_skip_shop,
@@ -1026,7 +1182,6 @@ func save_dev_tuning() -> void:
 			"dive_travel_duration": dive_travel_duration,
 		},
 		"fish_stat_overrides": fish_stat_overrides.duplicate(true),
-		"spear_upgrade_levels": spear_upgrade_levels.duplicate(true),
 		"spears": _serialize_spears(),
 	}
 	var f := FileAccess.open(DEV_TUNING_PATH, FileAccess.WRITE)
@@ -1061,14 +1216,23 @@ func load_dev_tuning() -> void:
 	var fov = data.get("fish_stat_overrides", {})
 	if typeof(fov) == TYPE_DICTIONARY:
 		fish_stat_overrides = fov
-	# Spear upgrade levels — merge so unknown saved keys don't blow away schema.
+	# v1 migration: older dev_tuning.json files stored spear_upgrade_levels here
+	# (which leaked into Normal mode). If we see them and there's no progress.json
+	# yet, copy them into progress so the player doesn't lose their normal-mode
+	# upgrades on the first launch after the save split.
 	var lv = data.get("spear_upgrade_levels", {})
-	if typeof(lv) == TYPE_DICTIONARY:
+	if typeof(lv) == TYPE_DICTIONARY and not lv.is_empty() and not progress_exists():
 		for spear_id in lv.keys():
 			if not spear_upgrade_levels.has(spear_id):
 				spear_upgrade_levels[spear_id] = {}
 			for k in lv[spear_id].keys():
 				spear_upgrade_levels[spear_id][k] = int(lv[spear_id][k])
+		# Persist to progress and rewrite dev_tuning without the leaked key.
+		var prev_state := dive_state
+		dive_state = DiveState.SURFACE
+		save_progress()
+		dive_state = prev_state
+		save_dev_tuning()
 	# Spear base fields — apply onto live SpearType resources (no .tres write).
 	var sd = data.get("spears", {})
 	if typeof(sd) == TYPE_DICTIONARY:

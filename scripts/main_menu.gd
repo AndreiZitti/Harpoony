@@ -5,7 +5,7 @@ extends CanvasLayer
 # Title text floats in the sky band with an idle bob; buttons sit below the
 # waterline. Replace TITLE_LOGO_SLOT with a sprite when the logo asset lands.
 
-signal mode_selected(mode: StringName)  # &"normal" or &"dev"
+signal mode_selected(mode: StringName)  # &"continue", &"new_game", or &"dev"
 signal bestiary_pressed
 
 const TITLE := "HARPOONY"
@@ -15,6 +15,11 @@ var _root: Control
 var _title_box: Label = null
 var _title_anchor_y: float = 0.0
 var _bob_time: float = 0.0
+# When the player taps New Game with a save present, the button cluster is
+# replaced in-place by a confirm overlay. _btn_box holds the original cluster
+# so we can fade it back in if they cancel.
+var _btn_box: VBoxContainer = null
+var _confirm_box: VBoxContainer = null
 
 
 func _ready() -> void:
@@ -84,38 +89,51 @@ func _build_ui() -> void:
 
 	# Button cluster — anchored bottom-center over the deeper water band so it
 	# never overlaps the boat hull. Vertical stack with comfortable hit boxes.
-	var btn_box := VBoxContainer.new()
-	btn_box.anchor_left = 0.5
-	btn_box.anchor_right = 0.5
-	btn_box.anchor_top = 1.0
-	btn_box.anchor_bottom = 1.0
-	btn_box.offset_left = -160
-	btn_box.offset_right = 160
-	btn_box.offset_top = -210
-	btn_box.offset_bottom = -60
-	btn_box.add_theme_constant_override("separation", 12)
-	_root.add_child(btn_box)
+	_btn_box = VBoxContainer.new()
+	_btn_box.anchor_left = 0.5
+	_btn_box.anchor_right = 0.5
+	_btn_box.anchor_top = 1.0
+	_btn_box.anchor_bottom = 1.0
+	_btn_box.offset_left = -160
+	_btn_box.offset_right = 160
+	_btn_box.offset_top = -240
+	_btn_box.offset_bottom = -60
+	_btn_box.add_theme_constant_override("separation", 12)
+	_root.add_child(_btn_box)
 
-	var normal_btn := _make_button("Start Run", true)
-	normal_btn.pressed.connect(func(): _select(&"normal"))
-	btn_box.add_child(normal_btn)
+	# Continue is the primary action when a save exists; otherwise New Game is
+	# primary and Continue is hidden.
+	var has_save := GameData.progress_exists()
+
+	if has_save:
+		var continue_btn := _make_button("Continue", true)
+		continue_btn.pressed.connect(func(): _select(&"continue"))
+		_btn_box.add_child(continue_btn)
+
+		var new_game_btn := _make_button("New Game", false)
+		new_game_btn.pressed.connect(_on_new_game_pressed)
+		_btn_box.add_child(new_game_btn)
+	else:
+		var new_game_btn := _make_button("New Game", true)
+		new_game_btn.pressed.connect(func(): _select(&"new_game"))
+		_btn_box.add_child(new_game_btn)
 
 	var bestiary_btn := _make_button("Bestiary", false)
 	bestiary_btn.pressed.connect(func(): bestiary_pressed.emit())
-	btn_box.add_child(bestiary_btn)
+	_btn_box.add_child(bestiary_btn)
 
 	var dev_btn := _make_button("Dev Mode", false)
 	dev_btn.pressed.connect(func(): _select(&"dev"))
-	btn_box.add_child(dev_btn)
+	_btn_box.add_child(dev_btn)
 
 	var hint := Label.new()
-	hint.text = "Dev mode: infinite oxygen, dev spawn panel, skip shop."
+	hint.text = "Dev Mode is a sandbox — your saved game won't be touched."
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.92, 0.94, 0.98, 0.7))
 	hint.add_theme_color_override("font_outline_color", Color(0.05, 0.07, 0.14))
 	hint.add_theme_constant_override("outline_size", 3)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	btn_box.add_child(hint)
+	_btn_box.add_child(hint)
 
 	# Fade in the whole overlay.
 	_root.modulate.a = 0.0
@@ -173,4 +191,81 @@ func _select(mode: StringName) -> void:
 	tw.tween_callback(func():
 		mode_selected.emit(mode)
 		queue_free()
+	)
+
+
+# New Game with a save present: replace the button cluster with an inline
+# confirm. Skip the prompt entirely on a fresh-launch (no save exists).
+func _on_new_game_pressed() -> void:
+	if not GameData.progress_exists():
+		_select(&"new_game")
+		return
+	_show_wipe_confirm()
+
+
+func _show_wipe_confirm() -> void:
+	if _btn_box == null:
+		return
+	# Fade buttons out, swap in confirm, fade confirm in.
+	_btn_box.modulate.a = 1.0
+	var fade_out := create_tween()
+	fade_out.tween_property(_btn_box, "modulate:a", 0.0, 0.15)
+	fade_out.tween_callback(func():
+		_btn_box.visible = false
+		_build_confirm_overlay()
+	)
+
+
+func _build_confirm_overlay() -> void:
+	_confirm_box = VBoxContainer.new()
+	_confirm_box.anchor_left = 0.5
+	_confirm_box.anchor_right = 0.5
+	_confirm_box.anchor_top = 1.0
+	_confirm_box.anchor_bottom = 1.0
+	_confirm_box.offset_left = -200
+	_confirm_box.offset_right = 200
+	_confirm_box.offset_top = -200
+	_confirm_box.offset_bottom = -60
+	_confirm_box.add_theme_constant_override("separation", 10)
+	_root.add_child(_confirm_box)
+
+	var prompt := Label.new()
+	prompt.text = "Wipe your saved progress?\nThis can't be undone."
+	prompt.add_theme_font_size_override("font_size", 16)
+	prompt.add_theme_color_override("font_color", Color(1.0, 0.93, 0.6))
+	prompt.add_theme_color_override("font_outline_color", Color(0.05, 0.07, 0.14))
+	prompt.add_theme_constant_override("outline_size", 4)
+	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_confirm_box.add_child(prompt)
+
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 6)
+	_confirm_box.add_child(spacer)
+
+	var wipe_btn := _make_button("Wipe & start", true)
+	wipe_btn.pressed.connect(func(): _select(&"new_game"))
+	_confirm_box.add_child(wipe_btn)
+
+	var cancel_btn := _make_button("Cancel", false)
+	cancel_btn.pressed.connect(_on_cancel_wipe)
+	_confirm_box.add_child(cancel_btn)
+
+	_confirm_box.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(_confirm_box, "modulate:a", 1.0, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+
+func _on_cancel_wipe() -> void:
+	if _confirm_box == null:
+		return
+	var tw := create_tween()
+	tw.tween_property(_confirm_box, "modulate:a", 0.0, 0.15)
+	tw.tween_callback(func():
+		_confirm_box.queue_free()
+		_confirm_box = null
+		if _btn_box:
+			_btn_box.visible = true
+			_btn_box.modulate.a = 0.0
+			var fade_in := create_tween()
+			fade_in.tween_property(_btn_box, "modulate:a", 1.0, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	)

@@ -39,8 +39,8 @@ const BOAT_INTRO_SLIDE_DURATION = 1.0
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.04, 0.08, 0.14))
-	# Restore last dev-panel tuning (silent no-op on first run / no file).
-	GameData.load_dev_tuning()
+	# Dev tuning is no longer auto-loaded on boot — it leaked into Normal-mode
+	# state. The Dev Mode button on the title screen loads it on demand.
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 	upgrade_shop.next_dive_pressed.connect(_on_dive_pressed)
@@ -147,6 +147,9 @@ func _on_mode_selected(mode: StringName) -> void:
 	if mode == &"dev":
 		# Dev mode = the tuning experience. Skip the shop entirely; the dev panel
 		# IS the UI. Default flags are tuned for nonstop fishing iteration.
+		# Load dev tuning HERE (not at boot) so its overrides only apply when
+		# the player actually opted into Dev Mode.
+		GameData.load_dev_tuning()
 		GameData.cheat_mode = true
 		GameData.dev_infinite_oxygen = true
 		GameData.dev_skip_shop = true
@@ -165,7 +168,28 @@ func _on_mode_selected(mode: StringName) -> void:
 			hud.visible = true
 		_on_dive_pressed()
 		return
-	# Normal mode: boat sails right, splash plays, boat resets, shop opens.
+
+	if mode == &"continue":
+		# Resume an existing campaign. Load the save, refresh signal-driven UI,
+		# skip the boat-slide intro (we're not "setting sail" — we're already on
+		# the water), drop straight into the shop.
+		GameData.load_progress()
+		GameData.cash_changed.emit(GameData.cash)
+		GameData.zone_changed.emit(GameData.get_current_zone())
+		for sid in GameData.unlocked_spear_types:
+			GameData.spear_type_unlocked.emit(sid)
+		for i in range(GameData.unlocked_zone_index + 1):
+			GameData.zone_unlocked.emit(i)
+		GameData.dive_number_changed.emit(GameData.dive_number)
+		if hud:
+			hud.visible = true
+		upgrade_shop.show_shop()
+		return
+
+	# New game (mode == &"new_game"): wipe any prior save, reset to baseline,
+	# play the boat-slide intro as the first-time-setting-sail beat.
+	GameData.wipe_save_files()
+	_reset_to_baseline()
 	slide_boat_for_intro(func():
 		var splash := CanvasLayer.new()
 		splash.set_script(SplashScript)
@@ -176,6 +200,8 @@ func _on_mode_selected(mode: StringName) -> void:
 			if hud:
 				hud.visible = true
 			upgrade_shop.show_shop()
+			# Persist the freshly-baselined state so the next launch shows Continue.
+			GameData.request_progress_save()
 		)
 	)
 
@@ -199,8 +225,12 @@ func _dev_spawn(species: String) -> void:
 		fish_spawner.dev_spawn(species)
 
 
-# Reset session: zero cash, clear upgrades + unlocks, fresh bag, back to surface.
-func _on_session_reset() -> void:
+# In-memory reset to a fresh-campaign baseline. Does NOT show the shop or play
+# the boat-slide intro; callers handle the navigation. Wipes run_history and
+# discovered_species in memory; on-disk wipe is the caller's responsibility
+# (GameData.wipe_save_files for the New Game path; clear_* helpers preserve the
+# old in-game Reset Session behaviour).
+func _reset_to_baseline() -> void:
 	GameData.cash = 0.0
 	GameData.dive_number = 0
 	GameData.dive_number_changed.emit(0)
@@ -216,8 +246,9 @@ func _on_session_reset() -> void:
 		GameData.spear_upgrade_levels[t.id] = levels
 	GameData.bag_loadout.clear()
 	GameData.auto_fill_bag()
-	GameData.clear_run_history()
-	GameData.clear_discovered_species()
+	GameData.run_history.clear()
+	GameData.discovered_species.clear()
+	GameData.whitewhale_caught = false
 	GameData.cash_changed.emit(0.0)
 	GameData.zone_changed.emit(GameData.get_current_zone())
 	# If a dive is in progress, abort cleanly back to surface.
@@ -227,7 +258,18 @@ func _on_session_reset() -> void:
 		if diver.has_method("set_visible_in_water"):
 			diver.set_visible_in_water(false)
 		GameData.set_dive_state(GameData.DiveState.SURFACE)
+
+
+# In-game "Reset Session" — used by the upgrade shop, ending screen, pause menu.
+# Wipes both the in-memory state AND the on-disk save, then drops back into the
+# shop. Same destructive behaviour as the title-screen "New Game" minus the
+# boat-slide intro.
+func _on_session_reset() -> void:
+	GameData.wipe_save_files()
+	_reset_to_baseline()
 	upgrade_shop.show_shop()
+	# Persist the freshly-baselined state so a Continue button shows up next launch.
+	GameData.request_progress_save()
 
 
 func _on_whitewhale_caught() -> void:
@@ -277,6 +319,17 @@ func _enter_underwater() -> void:
 		fish_spawner.start_spawning()
 	if diver.has_method("enable_fishing"):
 		diver.enable_fishing(true)
+	# Consume one-shot dev scenario flags. "Just the whale" spawns the whale on
+	# entry; "Empty scene" stops the spawner immediately so the screen stays
+	# clear for UI/oxygen testing.
+	if GameData.dev_spawn_whale_on_dive:
+		GameData.dev_spawn_whale_on_dive = false
+		if fish_spawner.has_method("dev_spawn"):
+			fish_spawner.dev_spawn("whitewhale")
+	if GameData.dev_suppress_spawns_on_dive:
+		GameData.dev_suppress_spawns_on_dive = false
+		if fish_spawner.has_method("stop_spawning"):
+			fish_spawner.stop_spawning()
 
 
 func _drain_oxygen(delta: float) -> void:

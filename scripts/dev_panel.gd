@@ -6,18 +6,48 @@ extends CanvasLayer
 # Layered above HUD/shop but below GameMenu's pause overlay so ESC still works.
 # PROCESS_MODE_ALWAYS so it can be opened/closed while the game tree is paused.
 
-const STAGE_PRESETS = [
-	{"label": "Z1 Fresh", "stage": 0, "level": &"fresh"},
-	{"label": "Z1 Maxed", "stage": 0, "level": &"maxed"},
-	{"label": "Z2 Fresh", "stage": 1, "level": &"fresh"},
-	{"label": "Z2 Maxed", "stage": 1, "level": &"maxed"},
-	{"label": "Z3 Fresh", "stage": 2, "level": &"fresh"},
-	{"label": "Z3 Maxed", "stage": 2, "level": &"maxed"},
-	{"label": "Z4 Fresh", "stage": 3, "level": &"fresh"},
-	{"label": "Z4 Whale Ready", "stage": 3, "level": &"whale_ready"},
+# Scenarios are the front door of the dev panel — plain-English jumps to a known
+# game state. `apply_zone` snaps the current selected zone to that stage so the
+# player lands directly in the relevant water on the next dive. `extras` adds
+# light follow-on actions ("spawn whale", "block fish spawns") so a tester can
+# get to the moment they care about in one click.
+const SCENARIOS = [
+	{
+		"label": "Fresh start in Zone 1",
+		"subtitle": "Empty wallet, no upgrades, default spear",
+		"stage": 0, "level": &"fresh",
+	},
+	{
+		"label": "Mid-game Zone 2",
+		"subtitle": "$500, oxygen lvl 2, normal + net spears",
+		"stage": 1, "level": &"whale_ready",
+	},
+	{
+		"label": "Late-game Zone 3",
+		"subtitle": "$2000, all spears unlocked, mid-tier upgrades",
+		"stage": 2, "level": &"whale_ready", "cash_override": 2000.0,
+	},
+	{
+		"label": "Whale hunt ready",
+		"subtitle": "$500, heavy spear maxed, full oxygen",
+		"stage": 3, "level": &"whale_ready",
+	},
+	{
+		"label": "Maxed everything",
+		"subtitle": "All zones, all spears at max, $5000",
+		"stage": 3, "level": &"maxed",
+	},
+	{
+		"label": "Just the whale",
+		"subtitle": "Whale-ready loadout + spawns the whale immediately on dive",
+		"stage": 3, "level": &"whale_ready", "extras": &"spawn_whale",
+	},
+	{
+		"label": "Empty scene",
+		"subtitle": "Current zone, no fish spawning (test UI / oxygen)",
+		"stage": -1, "level": &"none", "extras": &"no_spawns",
+	},
 ]
-
-const TAB_NAMES = ["Presets", "Spears", "Fish", "Costs", "Game", "Spawn"]
 
 # Order matches the species list in fish.gd::setup. Sub-tabs render in this order.
 const FISH_SPECIES = [
@@ -46,7 +76,7 @@ var _tab_container: TabContainer
 var _is_visible: bool = false
 var _dev_spawn_callable: Callable = Callable()
 
-# Game-tab live controls (kept around so we can refresh them on open).
+# Live-tweaks tab controls (kept around so we can refresh them on open).
 var _cash_spin: SpinBox = null
 var _oxygen_cap_spin: SpinBox = null
 var _bag_cap_spin: SpinBox = null
@@ -56,6 +86,9 @@ var _force_zones_check: CheckBox = null
 var _infinite_oxy_check: CheckBox = null
 var _skip_shop_check: CheckBox = null
 var _state_label: Label = null
+# Toast lives in the panel header so scenario buttons can confirm what loaded.
+var _toast_label: Label = null
+var _toast_tween: Tween = null
 
 
 func _ready() -> void:
@@ -121,8 +154,9 @@ func _build_ui() -> void:
 	v.add_theme_constant_override("separation", 10)
 	panel.add_child(v)
 
-	# Top bar with title + close
+	# Top bar with title + reset-all + export + close
 	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
 	v.add_child(top)
 	var title := Label.new()
 	title.text = "DEV PANEL"
@@ -132,6 +166,11 @@ func _build_ui() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(spacer)
+	var reset_all_btn := Button.new()
+	reset_all_btn.text = "Reset all dev tuning"
+	reset_all_btn.tooltip_text = "Wipes dev_tuning.json + clears live tweaks. Does not touch your saved progress."
+	reset_all_btn.pressed.connect(_on_reset_all_pressed)
+	top.add_child(reset_all_btn)
 	var export_btn := Button.new()
 	export_btn.text = "Export to clipboard"
 	export_btn.pressed.connect(func(): _on_export_pressed(export_btn))
@@ -147,51 +186,84 @@ func _build_ui() -> void:
 	_state_label.add_theme_color_override("font_color", Color(0.7, 0.78, 0.92))
 	v.add_child(_state_label)
 
-	# Tab container
+	# Toast — sits in the panel header, fades in on scenario load and out 2s later.
+	_toast_label = Label.new()
+	_toast_label.add_theme_font_size_override("font_size", 13)
+	_toast_label.add_theme_color_override("font_color", Color(0.55, 1.0, 0.7))
+	_toast_label.modulate.a = 0.0
+	v.add_child(_toast_label)
+
+	# Tab container — Scenarios is the default front door; balance is buried last.
 	_tab_container = TabContainer.new()
 	_tab_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_tab_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(_tab_container)
 
-	_build_presets_tab()
-	_build_spears_tab()
-	_build_fish_tab()
-	_build_placeholder_tab("Costs", "Phase 4 — edit upgrade cost ladders. Coming soon.")
-	_build_game_tab()
+	_build_scenarios_tab()
+	_build_live_tweaks_tab()
 	_build_spawn_tab()
+	_build_balance_tab()
 
 
-func _build_presets_tab() -> void:
-	var page := _make_tab_page("Presets")
+func _build_scenarios_tab() -> void:
+	var page := _make_tab_page("Scenarios")
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(scroll)
+
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
-	page.add_child(v)
+	v.add_theme_constant_override("separation", 10)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(v)
 
 	var blurb := Label.new()
-	blurb.text = "One-click stage setups. Sets zone, unlocks, cash, and upgrade levels."
+	blurb.text = "Jump straight into a known game state. Click a scenario, dive, playtest."
 	blurb.add_theme_color_override("font_color", Color(0.75, 0.8, 0.92))
 	v.add_child(blurb)
 
-	# 4 columns × 2 rows = 8 presets
-	var grid := GridContainer.new()
-	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	v.add_child(grid)
-
-	for entry in STAGE_PRESETS:
-		var btn := Button.new()
-		btn.text = entry["label"]
-		btn.custom_minimum_size = Vector2(200, 56)
-		btn.add_theme_font_size_override("font_size", 14)
-		var stage_idx: int = entry["stage"]
-		var level: StringName = entry["level"]
-		btn.pressed.connect(func(): _on_preset_pressed(stage_idx, level))
-		grid.add_child(btn)
+	for entry in SCENARIOS:
+		v.add_child(_make_scenario_button(entry))
 
 
-func _build_game_tab() -> void:
-	var page := _make_tab_page("Game")
+func _make_scenario_button(entry: Dictionary) -> Control:
+	# Each scenario is a stacked Label inside a Button so we get a clickable row
+	# with title + subtitle. Button.text alone can't hold two font sizes.
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(0, 56)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.add_theme_font_size_override("font_size", 1)  # hide native text channel
+	btn.pressed.connect(func(): _on_scenario_pressed(entry))
+
+	var box := VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 14
+	box.offset_right = -14
+	box.offset_top = 6
+	box.offset_bottom = -6
+	box.add_theme_constant_override("separation", 2)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(box)
+
+	var title := Label.new()
+	title.text = String(entry["label"])
+	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_color_override("font_color", Color(1.0, 0.93, 0.6))
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(title)
+
+	var sub := Label.new()
+	sub.text = String(entry.get("subtitle", ""))
+	sub.add_theme_font_size_override("font_size", 11)
+	sub.add_theme_color_override("font_color", Color(0.78, 0.84, 0.95, 0.85))
+	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(sub)
+
+	return btn
+
+
+func _build_live_tweaks_tab() -> void:
+	var page := _make_tab_page("Live tweaks")
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -202,22 +274,26 @@ func _build_game_tab() -> void:
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(v)
 
-	# Cash setter
-	_cash_spin = _add_spin_row(v, "Cash", 0, 99999, 100, GameData.cash, _on_cash_changed)
+	var blurb := Label.new()
+	blurb.text = "Knobs that change the run in flight. Default values are shown in grey."
+	blurb.add_theme_color_override("font_color", Color(0.75, 0.8, 0.92))
+	v.add_child(blurb)
 
-	# Oxygen capacity override (-1 means use level-based formula).
-	# UI shows 0 = "no override"; we map 0 -> -1 internally.
-	_oxygen_cap_spin = _add_spin_row(v, "Oxygen capacity (s, 0=auto)", 0, 120, 1,
-		max(0, GameData.oxygen_capacity_override), _on_oxygen_cap_changed)
+	# Cash setter — default is 0, but we don't show a "default" hint here since
+	# cash is genuinely arbitrary, not a tuning knob.
+	_cash_spin = _add_spin_row(v, "Cash: $", 0, 99999, 100, GameData.cash, _on_cash_changed)
 
-	# Bag capacity override (0 = auto).
-	_bag_cap_spin = _add_spin_row(v, "Bag capacity (0=auto)", 0, 30, 1,
-		max(0, GameData.bag_capacity_override), _on_bag_cap_changed)
+	# Oxygen capacity override (-1 = no override). UI maps 0 -> -1 internally.
+	_oxygen_cap_spin = _add_spin_row_with_default(v, "Oxygen seconds", "s", 0, 120, 1,
+		max(0, GameData.oxygen_capacity_override), 0, "0 = use level-based formula",
+		_on_oxygen_cap_changed)
 
-	# Dive travel duration (seconds).
-	_dive_dur_spin = _add_spin_row(v, "Dive travel duration (s)", 0.1, 10.0, 0.1,
-		GameData.dive_travel_duration, _on_dive_duration_changed)
-	# Re-config the duration spin for floats
+	_bag_cap_spin = _add_spin_row_with_default(v, "Bag capacity", "spears", 0, 30, 1,
+		max(0, GameData.bag_capacity_override), 0, "0 = use level-based formula",
+		_on_bag_cap_changed)
+
+	_dive_dur_spin = _add_spin_row_with_default(v, "Dive travel", "s", 0.1, 10.0, 0.1,
+		GameData.dive_travel_duration, 1.5, "default 1.5s", _on_dive_duration_changed)
 	_dive_dur_spin.step = 0.1
 
 	v.add_child(HSeparator.new())
@@ -230,6 +306,92 @@ func _build_game_tab() -> void:
 		GameData.dev_infinite_oxygen, _on_infinite_oxygen_toggled)
 	_skip_shop_check = _add_check_row(v, "Skip shop after dive (auto re-dive)",
 		GameData.dev_skip_shop, _on_skip_shop_toggled)
+
+
+func _build_balance_tab() -> void:
+	# Balance is the dense tuning surface. We hide it behind collapsed sections
+	# so a non-programmer using Scenarios + Live tweaks never has to look at it.
+	var page := _make_tab_page("Balance")
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(scroll)
+
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 6)
+	scroll.add_child(v)
+
+	var blurb := Label.new()
+	blurb.text = "Deep tuning. Click a section to expand. Each has its own reset."
+	blurb.add_theme_color_override("font_color", Color(0.75, 0.8, 0.92))
+	v.add_child(blurb)
+
+	# Spears section: per-spear sub-tabs (existing build kept verbatim).
+	var spears_content := _build_spears_content()
+	v.add_child(_make_collapsible_section("Spears",
+		"Per-spear stats and upgrade levels", spears_content,
+		_on_reset_all_spears_pressed))
+
+	# Fish section: per-species sub-tabs.
+	var fish_content := _build_fish_content()
+	v.add_child(_make_collapsible_section("Fish",
+		"Per-species value, speed, hit radius, motion", fish_content,
+		_on_reset_all_fish_pressed))
+
+	# Costs placeholder — kept so the structure matches the design doc.
+	var costs_msg := Label.new()
+	costs_msg.text = "Phase 4 — edit upgrade cost ladders. Coming soon."
+	costs_msg.add_theme_color_override("font_color", Color(0.6, 0.65, 0.78))
+	costs_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_make_collapsible_section("Costs",
+		"Upgrade cost ladders", costs_msg, Callable()))
+
+
+# A header-button + toggleable content body. Body starts hidden ("collapsed by
+# default" per the design). The button text shows ▶/▼ to telegraph state.
+# `on_reset` is optional; when valid, an inline "Reset section" button appears
+# in the header next to the toggle.
+func _make_collapsible_section(title: String, subtitle: String, content: Control,
+		on_reset: Callable) -> Control:
+	var section := VBoxContainer.new()
+	section.add_theme_constant_override("separation", 2)
+
+	var header_row := HBoxContainer.new()
+	header_row.add_theme_constant_override("separation", 6)
+	section.add_child(header_row)
+
+	var toggle := Button.new()
+	toggle.toggle_mode = true
+	toggle.button_pressed = false
+	toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toggle.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	toggle.text = "▶  %s — %s" % [title, subtitle]
+	toggle.add_theme_font_size_override("font_size", 14)
+	header_row.add_child(toggle)
+
+	if on_reset.is_valid():
+		var reset := Button.new()
+		reset.text = "Reset section"
+		reset.pressed.connect(on_reset)
+		header_row.add_child(reset)
+
+	# Wrap content so we can toggle visibility on a stable parent regardless of
+	# what `content` actually is.
+	var body := MarginContainer.new()
+	body.add_theme_constant_override("margin_left", 12)
+	body.add_theme_constant_override("margin_top", 4)
+	body.add_theme_constant_override("margin_bottom", 4)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(content)
+	body.visible = false
+	section.add_child(body)
+
+	toggle.toggled.connect(func(pressed: bool):
+		body.visible = pressed
+		toggle.text = ("▼  " if pressed else "▶  ") + "%s — %s" % [title, subtitle])
+
+	return section
 
 
 func _build_spawn_tab() -> void:
@@ -278,14 +440,12 @@ func _build_spawn_tab() -> void:
 	row.add_child(whale_btn)
 
 
-func _build_fish_tab() -> void:
+func _build_fish_content() -> Control:
 	# Per-species sub-tabs. Sliders write to GameData.fish_stat_overrides AND
 	# patch every live fish of that species so changes are visible instantly.
-	var page := _make_tab_page("Fish")
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	page.add_child(v)
+	v.custom_minimum_size = Vector2(0, 360)
 
 	var blurb := Label.new()
 	blurb.text = "Live-tune each species. Overrides apply to spawned fish + future spawns until reset."
@@ -306,6 +466,7 @@ func _build_fish_tab() -> void:
 		sub_page.add_theme_constant_override("margin_bottom", 6)
 		sub_tabs.add_child(sub_page)
 		sub_page.add_child(_build_fish_subtab(species))
+	return v
 
 
 func _build_fish_subtab(species: String) -> Control:
@@ -413,14 +574,12 @@ func _fish_defaults_for(species: String) -> Dictionary:
 	return {"base_value": 10, "speed": 100.0, "hit_radius": 12.0, "wave_amplitude": 20.0, "wave_frequency": 2.0}
 
 
-func _build_spears_tab() -> void:
+func _build_spears_content() -> Control:
 	# Per-spear sub-tabs: live sliders/spinboxes/checks for every base stat,
 	# plus per-upgrade-key level spinners. Stats apply LIVE — no apply button.
-	var page := _make_tab_page("Spears")
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	page.add_child(v)
+	v.custom_minimum_size = Vector2(0, 360)
 
 	var blurb := Label.new()
 	blurb.text = "Live-tune each spear's base stats and upgrade levels. Changes apply instantly."
@@ -441,6 +600,7 @@ func _build_spears_tab() -> void:
 		sub_page.add_theme_constant_override("margin_bottom", 6)
 		sub_tabs.add_child(sub_page)
 		sub_page.add_child(_build_spear_subtab(t.id))
+	return v
 
 
 func _build_spear_subtab(spear_id: StringName) -> Control:
@@ -478,30 +638,51 @@ func _build_spear_subtab(spear_id: StringName) -> Control:
 	reset_btn.pressed.connect(func(): _reset_spear_to_disk(spear_id))
 	hdr.add_child(reset_btn)
 
-	# --- Base stats
+	# Defaults from the .tres on disk so "(default X)" reads honestly even after
+	# the user has tweaked the live instance.
+	var fresh: SpearType = load("res://data/spears/%s.tres" % str(spear_id))
+	var d_speed: float = float(fresh.speed_mult) if fresh else 1.0
+	var d_reel: float = float(fresh.reel_speed_mult) if fresh else 1.0
+	var d_radius: float = float(fresh.hit_radius_bonus) if fresh else 0.0
+	var d_value: float = float(fresh.value_bonus) if fresh else 1.0
+	var d_pierce: float = float(fresh.pierce_count) if fresh else 1.0
+	var d_netr: float = float(fresh.net_radius) if fresh else 0.0
+	var d_netmax: float = float(fresh.net_max_catch) if fresh else 1.0
+	var d_crit: float = float(fresh.crit_chance) if fresh else 0.0
+
 	v.add_child(_section_label("Base Stats"))
-	_add_slider_row(v, "speed_mult", 0.3, 3.0, 0.05,
+	_add_humanized_slider_row(v, "Spear speed", 0.3, 3.0, 0.05,
 		func(): return t.speed_mult,
-		func(val): t.speed_mult = val)
-	_add_slider_row(v, "reel_speed_mult", 0.3, 3.0, 0.05,
+		func(val): t.speed_mult = val,
+		_fmt_percent_delta, d_speed)
+	_add_humanized_slider_row(v, "Reel speed", 0.3, 3.0, 0.05,
 		func(): return t.reel_speed_mult,
-		func(val): t.reel_speed_mult = val)
-	_add_slider_row(v, "hit_radius_bonus", -10.0, 50.0, 1.0,
+		func(val): t.reel_speed_mult = val,
+		_fmt_percent_delta, d_reel)
+	_add_humanized_slider_row(v, "Hit radius bonus", -10.0, 50.0, 1.0,
 		func(): return t.hit_radius_bonus,
-		func(val): t.hit_radius_bonus = val)
-	_add_slider_row(v, "value_bonus", 0.5, 5.0, 0.05,
+		func(val): t.hit_radius_bonus = val,
+		_fmt_pixels, d_radius)
+	_add_humanized_slider_row(v, "Value bonus", 0.5, 5.0, 0.05,
 		func(): return t.value_bonus,
-		func(val): t.value_bonus = val)
-	_add_spin_row(v, "pierce_count", 1, 6, 1, t.pierce_count,
-		func(val): t.pierce_count = int(val))
-	_add_slider_row(v, "net_radius", 0.0, 200.0, 5.0,
+		func(val): t.value_bonus = val,
+		_fmt_value_bonus, d_value)
+	_add_humanized_slider_row(v, "Pierces", 1.0, 6.0, 1.0,
+		func(): return float(t.pierce_count),
+		func(val): t.pierce_count = int(val),
+		_fmt_count, d_pierce)
+	_add_humanized_slider_row(v, "Net radius", 0.0, 200.0, 5.0,
 		func(): return t.net_radius,
-		func(val): t.net_radius = val)
-	_add_spin_row(v, "net_max_catch", 1, 15, 1, t.net_max_catch,
-		func(val): t.net_max_catch = int(val))
-	_add_slider_row(v, "crit_chance", 0.0, 1.0, 0.01,
+		func(val): t.net_radius = val,
+		_fmt_pixels, d_netr)
+	_add_humanized_slider_row(v, "Net max catch", 1.0, 15.0, 1.0,
+		func(): return float(t.net_max_catch),
+		func(val): t.net_max_catch = int(val),
+		_fmt_count, d_netmax)
+	_add_humanized_slider_row(v, "Crit chance", 0.0, 1.0, 0.01,
 		func(): return t.crit_chance,
-		func(val): t.crit_chance = val)
+		func(val): t.crit_chance = val,
+		_fmt_percent, d_crit)
 
 	# --- Toggles (binary flags, some stored as int 0/1)
 	v.add_child(_section_label("Flags"))
@@ -646,8 +827,20 @@ func _add_spin_row(parent: Node, label_text: String, min_v: float, max_v: float,
 
 func _add_slider_row(parent: Node, label_text: String, lo: float, hi: float,
 		step: float, getter: Callable, setter: Callable) -> HSlider:
-	# Slider + live numeric readout. Getter is called once to seed the value;
-	# setter is called on every drag tick so changes apply LIVE.
+	# Default formatter: 2-decimal raw float. For humanized labels (percent,
+	# seconds, additive bonuses), use _add_humanized_slider_row.
+	return _add_humanized_slider_row(parent, label_text, lo, hi, step, getter, setter,
+		func(v: float): return "%.2f" % v, NAN)
+
+
+# Humanized slider: label + slider + formatted live value + (optional) faded
+# default. `format_value(v)` returns the user-facing string (e.g. "+20%", "30s").
+# `default_v` (NAN to skip) is rendered to the right of the live readout in a
+# dimmer color so a non-programmer can see how far they've drifted.
+func _add_humanized_slider_row(parent: Node, label_text: String,
+		lo: float, hi: float, step: float,
+		getter: Callable, setter: Callable,
+		format_value: Callable, default_v: float) -> HSlider:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	parent.add_child(row)
@@ -668,17 +861,90 @@ func _add_slider_row(parent: Node, label_text: String, lo: float, hi: float,
 	row.add_child(slider)
 
 	var val_lbl := Label.new()
-	val_lbl.text = "%.2f" % slider.value
-	val_lbl.custom_minimum_size = Vector2(60, 0)
+	val_lbl.text = String(format_value.call(slider.value))
+	val_lbl.custom_minimum_size = Vector2(80, 0)
 	val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	val_lbl.add_theme_color_override("font_color", Color(0.95, 0.92, 0.6))
 	row.add_child(val_lbl)
 
+	if not is_nan(default_v):
+		var def_lbl := Label.new()
+		def_lbl.text = "(default %s)" % String(format_value.call(default_v))
+		def_lbl.custom_minimum_size = Vector2(120, 0)
+		def_lbl.add_theme_font_size_override("font_size", 11)
+		def_lbl.add_theme_color_override("font_color", Color(0.55, 0.6, 0.72))
+		row.add_child(def_lbl)
+
 	slider.value_changed.connect(func(v: float):
 		setter.call(v)
-		val_lbl.text = "%.2f" % v
+		val_lbl.text = String(format_value.call(v))
 		GameData.request_dev_tuning_save())
 	return slider
+
+
+# Spin row variant that shows a "(default X)" hint to its right, mirroring the
+# humanized slider treatment. Used by Live tweaks where the values are integers
+# (oxygen seconds, dive travel seconds, bag slots).
+func _add_spin_row_with_default(parent: Node, label_text: String, unit: String,
+		min_v: float, max_v: float, step: float, value: float,
+		_default_v: float, hint: String, on_change: Callable) -> SpinBox:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+
+	var lbl := Label.new()
+	lbl.text = label_text
+	lbl.custom_minimum_size = Vector2(180, 0)
+	lbl.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	row.add_child(lbl)
+
+	var spin := SpinBox.new()
+	spin.min_value = min_v
+	spin.max_value = max_v
+	spin.step = step
+	spin.value = value
+	spin.suffix = unit
+	spin.custom_minimum_size = Vector2(140, 0)
+	spin.value_changed.connect(func(v: float):
+		on_change.call(v)
+		GameData.request_dev_tuning_save())
+	row.add_child(spin)
+
+	if hint != "":
+		var hint_lbl := Label.new()
+		hint_lbl.text = hint
+		hint_lbl.custom_minimum_size = Vector2(180, 0)
+		hint_lbl.add_theme_font_size_override("font_size", 11)
+		hint_lbl.add_theme_color_override("font_color", Color(0.55, 0.6, 0.72))
+		row.add_child(hint_lbl)
+	return spin
+
+
+# --- Humanized formatters for slider rows ---
+
+func _fmt_percent_delta(v: float) -> String:
+	# 1.0 baseline + delta multiplier → "+X%" / "-X%". Used for *_mult fields.
+	var pct: int = int(round((v - 1.0) * 100.0))
+	if pct == 0: return "+0%"
+	return "%+d%%" % pct
+
+
+func _fmt_percent(v: float) -> String:
+	# 0.0..1.0 raw probability → "X%". Used for crit_chance.
+	return "%d%%" % int(round(v * 100.0))
+
+
+func _fmt_pixels(v: float) -> String:
+	return "%dpx" % int(round(v))
+
+
+func _fmt_count(v: float) -> String:
+	return "%d" % int(round(v))
+
+
+func _fmt_value_bonus(v: float) -> String:
+	# value_bonus is "additive multiplier on top of base value" — 1.0 means +0%.
+	return _fmt_percent_delta(v)
 
 
 func _add_check_row(parent: Node, label_text: String, initial: bool,
@@ -700,12 +966,102 @@ func _add_check_row(parent: Node, label_text: String, initial: bool,
 
 # --- Handlers ---
 
-func _on_preset_pressed(stage: int, level: StringName) -> void:
-	GameData.apply_stage_preset(stage, level)
+func _on_scenario_pressed(entry: Dictionary) -> void:
+	# "Empty scene" doesn't touch progression — it just suppresses spawns on the
+	# next dive. Stage = -1 signals "leave state alone".
+	var stage_idx: int = int(entry.get("stage", -1))
+	var level: StringName = StringName(entry.get("level", &"none"))
+	if stage_idx >= 0 and level != &"none":
+		GameData.apply_stage_preset(stage_idx, level)
+		var cash_override = entry.get("cash_override", null)
+		if cash_override != null:
+			GameData.cash = float(cash_override)
+			GameData.cash_changed.emit(GameData.cash)
+
+	# Extras: one-shot flags consumed by main.gd on the next UNDERWATER transition.
+	GameData.dev_spawn_whale_on_dive = false
+	GameData.dev_suppress_spawns_on_dive = false
+	var extras: StringName = StringName(entry.get("extras", &""))
+	if extras == &"spawn_whale":
+		GameData.dev_spawn_whale_on_dive = true
+	elif extras == &"no_spawns":
+		GameData.dev_suppress_spawns_on_dive = true
+
 	GameData.request_dev_tuning_save()
 	_refresh_state_label()
 	_refresh_game_tab_values()
+	_show_toast("Scenario loaded: %s" % String(entry["label"]))
 	close()
+
+
+func _show_toast(text: String) -> void:
+	if _toast_label == null:
+		return
+	_toast_label.text = text
+	if _toast_tween and _toast_tween.is_valid():
+		_toast_tween.kill()
+	_toast_label.modulate.a = 0.0
+	_toast_tween = create_tween()
+	_toast_tween.tween_property(_toast_label, "modulate:a", 1.0, 0.18)
+	_toast_tween.tween_interval(2.2)
+	_toast_tween.tween_property(_toast_label, "modulate:a", 0.0, 0.4)
+
+
+# Wipes dev_tuning.json from disk AND restores all in-memory dev tunables to a
+# vanilla state — including the live-tweak toggles. Does NOT touch progress.json.
+func _on_reset_all_pressed() -> void:
+	if FileAccess.file_exists(GameData.DEV_TUNING_PATH):
+		DirAccess.remove_absolute(GameData.DEV_TUNING_PATH)
+	GameData.dev_infinite_oxygen = false
+	GameData.dev_skip_shop = false
+	GameData.oxygen_capacity_override = -1.0
+	GameData.bag_capacity_override = -1
+	GameData.dive_travel_duration = 1.5
+	GameData.fish_stat_overrides.clear()
+	# Reset every live SpearType resource to its on-disk .tres baseline.
+	_reset_all_spears_in_memory()
+	# Clear scenario-extra flags too — they're part of "vanilla dev state".
+	GameData.dev_spawn_whale_on_dive = false
+	GameData.dev_suppress_spawns_on_dive = false
+	_show_toast("Dev tuning reset to defaults")
+	# Easiest visual refresh: close and reopen, which rebuilds the entire UI.
+	if is_open():
+		close()
+		toggle()
+
+
+func _on_reset_all_spears_pressed() -> void:
+	_reset_all_spears_in_memory()
+	GameData.request_dev_tuning_save()
+	_show_toast("Spear stats reset")
+	if is_open():
+		close()
+		toggle()
+
+
+func _on_reset_all_fish_pressed() -> void:
+	GameData.fish_stat_overrides.clear()
+	GameData.request_dev_tuning_save()
+	_show_toast("Fish overrides reset")
+	if is_open():
+		close()
+		toggle()
+
+
+func _reset_all_spears_in_memory() -> void:
+	var fields: Array[StringName] = [
+		&"speed_mult", &"reel_speed_mult", &"hit_radius_bonus",
+		&"value_bonus", &"pierce_count", &"net_radius",
+		&"net_max_catch", &"crit_chance", &"catches_medium",
+		&"bypasses_defenses", &"twin_shot", &"perfect_strike",
+		&"sonic_boom", &"lure_net",
+	]
+	for live in GameData.spear_types:
+		var fresh: SpearType = load("res://data/spears/%s.tres" % str(live.id))
+		if fresh == null:
+			continue
+		for prop in fields:
+			live.set(prop, fresh.get(prop))
 
 
 func _on_cash_changed(value: float) -> void:

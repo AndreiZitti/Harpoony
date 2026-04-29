@@ -99,6 +99,12 @@ func _build_history_panel() -> PanelContainer:
 func show_summary() -> void:
 	if _is_visible:
 		return
+	# Sanity: finish_dive() must have run before the summary opens — that is
+	# what populates last_dive_*. If a future refactor swaps the call order, the
+	# screen would show the previous dive's totals (or empty defaults). Catch
+	# that during development.
+	assert(GameData.dive_state == GameData.DiveState.SURFACE,
+		"DiveSummary.show_summary called before finish_dive transitioned to SURFACE")
 	_is_visible = true
 	_populate_summary()
 	_summary_panel.visible = true
@@ -227,9 +233,12 @@ func _build_spear_table(shots: Dictionary, hits: Dictionary) -> Control:
 func _build_fish_table(catches: Dictionary) -> Control:
 	if catches.is_empty():
 		var none := Label.new()
-		none.text = "No catches this dive."
-		none.add_theme_font_size_override("font_size", 12)
-		none.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
+		none.text = "No catches this dive — the fish got lucky."
+		none.add_theme_font_size_override("font_size", 13)
+		none.add_theme_color_override("font_color", Color(0.7, 0.78, 0.9))
+		none.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# Italic via theme is awkward in pure script; the centered + slightly
+		# softer color carries the "this is a flavour line, not data" feel.
 		return none
 
 	var grid := GridContainer.new()
@@ -407,5 +416,17 @@ func _species_display(species_id: String) -> String:
 
 
 func _on_continue_pressed() -> void:
+	# Press feedback: panel slides up 8px and desaturates while fading out, so
+	# the transition reads as intentional rather than instant. Total ~200ms.
+	var panel := _summary_panel
+	if panel:
+		var start_y := panel.position.y
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(panel, "position:y", start_y - 8, 0.18).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.tween_property(panel, "modulate", Color(0.7, 0.7, 0.7, 1.0), 0.18)
 	_hide()
+	# Defer the signal one frame so the slide reads visually before the next
+	# scene takes over.
+	await get_tree().create_timer(0.2).timeout
 	continue_requested.emit()
